@@ -1,0 +1,8 @@
+# AgriTwin Demo 后端依赖（Python 3.10+，实测 3.12）
+# 安装：pip install -r requirements.txt
+fastapi>=0.115,<1.0
+uvicorn>=0.30,<1.0
+python-multipart>=0.0.9,<1.0
+numpy>=1.26,<3.0
+Pillow>=10,<14
+onnxruntime>=1.18,<2.0

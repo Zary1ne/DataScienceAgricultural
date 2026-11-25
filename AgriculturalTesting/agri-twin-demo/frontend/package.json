@@ -1,0 +1,27 @@
+{
+  "name": "agri-twin-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test:rice": "node --test tests/riceInstanceBatches.test.js",
+    "test:environment": "node --test tests/plotEnvironmentSync.test.js",
+    "test:status": "node --test tests/environmentStatus.test.js",
+    "test:settlement": "node --test tests/plotSettlement.test.js",
+    "test:simulation": "node --test tests/plotSimulation.test.js",
+    "test:components": "node --test tests/farmComponents.test.js",
+    "test:catalog": "node --test tests/farmComponentCatalog.test.js"
+  },
+  "dependencies": {
+    "three": "^0.160.0",
+    "vue": "^3.4.21",
+    "vue-router": "^4.3.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.4",
+    "vite": "^5.2.0"
+  }
+}

@@ -17,6 +17,9 @@ const props = defineProps({
   /** 新 prop：来自 weatherState.js 的 WeatherSnapshot */
   weatherSnapshot: { type: Object, default: null },
   componentManager: { type: Object, default: null },
+  regionConfig: { type: Object, default: null },
+  regionConfigs: { type: Array, default: null },
+  previewMode: { type: Boolean, default: false },
   /** P3: 收割进度 0~1 —— 驱动水稻变矮、变灰成为稻茬 */
   harvestAmount: { type: Number, default: 0 },
 });
@@ -91,15 +94,37 @@ const INSPECTION_SAFE_PITCH = Math.PI / 2 - 0.09;  // 距水平 ±85° 的安全
 const INSPECTION_MIN_FOV = 20;
 const INSPECTION_MAX_FOV = 80;
 let inspectionFovTarget = null;
-// P10: 全场几何中心（平原 (0,0) 与梯田 (80,0) 的中点）
-const SCENE_CENTER = new THREE.Vector3(40, 0.6, 0);
-const REGION_TARGET_X = Object.freeze({ all: 40, plain: 0, terrace: 80 });
+function sceneCenter() {
+  const regions = activeRegionConfigs();
+  if (regions.length) {
+    const cells = regions.flatMap((region) => region.cells.map((cell) => ({
+      x: region.originXZ.x + cell.centerXZ.x,
+      z: region.originXZ.z + cell.centerXZ.z,
+    })));
+    return new THREE.Vector3(
+      (Math.min(...cells.map((cell) => cell.x)) + Math.max(...cells.map((cell) => cell.x))) / 2,
+      0.6,
+      (Math.min(...cells.map((cell) => cell.z)) + Math.max(...cells.map((cell) => cell.z))) / 2
+    );
+  }
+  const region = props.regionConfig;
+  return new THREE.Vector3(
+    (region?.originXZ?.x ?? 40) + (region?.sceneCenterXZ?.x ?? 0),
+    0.6,
+    (region?.originXZ?.z ?? 0) + (region?.sceneCenterXZ?.z ?? 0)
+  );
+}
+
+function activeRegionConfigs() {
+  if (Array.isArray(props.regionConfigs)) return props.regionConfigs;
+  return props.regionConfig ? [props.regionConfig] : [];
+}
 // 全局巡检时适当放大视野，尽量把两块田同时纳入画面
 const INSPECTION_GLOBAL_FOV = 70;
 let inspectionBaseFov = null;
 const weatherCenterX = 40;
-const weatherHalfWidth = 75;
-const weatherHalfDepth = 40;
+const weatherHalfWidth = 130;
+const weatherHalfDepth = 55;
 
 const target = new THREE.Vector3(40, 1.5, 0);
 let radius = 150;
@@ -119,6 +144,8 @@ let fpsWindowStart = 0;
 let componentDragging = false;
 let draggedComponentId = null;
 let componentDragMoved = false;
+let layoutRebuildTimer = 0;
+let previewNeedsRender = true;
 
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
@@ -140,7 +167,11 @@ function overviewRadius() {
   const aspect = camera?.aspect || 1.4;
   const halfVertical = THREE.MathUtils.degToRad((camera?.fov || 42) / 2);
   const halfHorizontal = Math.atan(Math.tan(halfVertical) * aspect);
-  return THREE.MathUtils.clamp(72 / Math.tan(halfHorizontal) * 1.12, 135, 280);
+  const regions = activeRegionConfigs();
+  const span = regions.length
+    ? Math.max(22, ...regions.map((region) => Math.max(region.totalWidthM, region.totalDepthM) / 2))
+    : Math.max(22, props.regionConfig?.viewRadiusM ?? 34);
+  return THREE.MathUtils.clamp(span / Math.tan(halfHorizontal) * 1.04, 48, 220);
 }
 
 // P11: 俯仰限幅 —— 相对初始视角不超过 ±60°，同时保证总俯仰不越过 ±85°（防止倒转）
@@ -248,7 +279,7 @@ function updateCameraTransition(dt) {
 }
 
 function setupRings() {
-  const ringGeo = new THREE.RingGeometry(4.1, 4.5, 48);
+  const ringGeo = new THREE.RingGeometry(0.86, 0.96, 48);
   ringGeo.rotateX(-Math.PI / 2);
   selectionRing = new THREE.Mesh(
     ringGeo,
@@ -257,7 +288,7 @@ function setupRings() {
   selectionRing.position.y = 0.04;
   scene.add(selectionRing);
 
-  const hoverGeo = new THREE.RingGeometry(3.9, 4.2, 40);
+  const hoverGeo = new THREE.RingGeometry(0.82, 0.9, 40);
   hoverGeo.rotateX(-Math.PI / 2);
   hoverRing = new THREE.Mesh(
     hoverGeo,
@@ -576,8 +607,10 @@ function moveDraggedComponent(clientX, clientY) {
   const point = pointOnHorizontalPlane(clientX, clientY, plotWorld.y);
   if (!point) return;
   const localPoint = plot.group.worldToLocal(point.clone());
-  const x = THREE.MathUtils.clamp(localPoint.x, -4.2, 4.2);
-  const z = THREE.MathUtils.clamp(localPoint.z, -4.2, 4.2);
+  const xLimit = Math.max(0.5, (plot.meta?.widthM ?? 10) / 2 - 0.8);
+  const zLimit = Math.max(0.5, (plot.meta?.depthM ?? 10) / 2 - 0.8);
+  const x = THREE.MathUtils.clamp(localPoint.x, -xLimit, xLimit);
+  const z = THREE.MathUtils.clamp(localPoint.z, -zLimit, zLimit);
   const rotationY = component.type === "sunshade" ? 0 : Math.atan2(x, z);
   const placement = { x, z, rotationY };
   componentManagerUpdatePlacement(component.id, placement);
@@ -818,7 +851,9 @@ function setSelected(id, { focusCamera = true } = {}) {
   if (!id || !farm) {
     label.visible = false;
     if (previousId && focusCamera) {
-      transitionCameraTo(new THREE.Vector3(40, 1.5, 0), 150, 0, Math.PI / 3);
+      const center = sceneCenter();
+      center.y = 1.5;
+      transitionCameraTo(center, overviewRadius(), 0, Math.PI / 3);
     }
     return;
   }
@@ -837,9 +872,10 @@ function setSelected(id, { focusCamera = true } = {}) {
   label.status = entry.meta?.status || "normal";
   label.visible = true;
   if (focusCamera) {
+    const focusRadius = Math.max(14, Math.min(entry.meta?.widthM ?? 10, entry.meta?.depthM ?? 10) * 1.9);
     transitionCameraTo(
       new THREE.Vector3(worldPosition.x, worldPosition.y + 0.5, worldPosition.z),
-      18,
+      focusRadius,
       theta,
       phi
     );
@@ -919,8 +955,9 @@ function highlightPlots(ids, color = 0xfbbf24, duration = 3000) {
     const entry = farm.registry.get(id);
     if (!entry?.waterMesh) return;
     const world = entry.group.getWorldPosition(new THREE.Vector3());
-    const size = (entry.waterMesh.geometry?.parameters?.width ?? 10) - 0.6;
-    const plane = new THREE.PlaneGeometry(size, size);
+    const width = Math.max(2, (entry.meta?.widthM ?? 10) - 0.6);
+    const depth = Math.max(2, (entry.meta?.depthM ?? 10) - 0.6);
+    const plane = new THREE.PlaneGeometry(width, depth);
     const fill = new THREE.Mesh(plane, fillMaterial);
     fill.rotation.x = -Math.PI / 2;
     fill.position.set(world.x, world.y + (entry.top ?? 0.05) + 0.02, world.z);
@@ -939,19 +976,16 @@ function resetView() {
   autoRotate = false;
   setSelected(null, { focusCamera: false });
   emit("select", null);
-  focusRegion("all");
+  focusRegion();
 }
 
-function focusRegion(region = "all") {
+function focusRegion() {
   if (inspectionMode) exitInspectionView();
   autoRotate = false;
-  const normalized = Object.prototype.hasOwnProperty.call(REGION_TARGET_X, region)
-    ? region
-    : "all";
-  emit("view-change", normalized);
+  emit("view-change", "region");
   transitionCameraTo(
-    new THREE.Vector3(REGION_TARGET_X[normalized], 1.5, 0),
-    normalized === "all" ? overviewRadius() : 86,
+    sceneCenter(),
+    overviewRadius(),
     0,
     Math.PI / 3
   );
@@ -980,7 +1014,7 @@ function enterInspectionView(componentId) {
   // P10: 全局摄像头没有所属地块 —— 初始 lookAt 强制死盯全场几何中心 (40, 0, 0)
   const isGlobalCamera = entry.component.plotId === GLOBAL_PLOT_ID;
   const plotCenter = isGlobalCamera
-    ? SCENE_CENTER.clone()
+    ? sceneCenter()
     : entry.group.parent
       ? entry.group.parent.getWorldPosition(new THREE.Vector3())
       : position.clone().addScaledVector(deviceForward, 8);
@@ -992,7 +1026,7 @@ function enterInspectionView(componentId) {
   cameraPosition.y = position.y + headLocalY * worldScaleY + 0.06;
   // 注视点：全局摄像头死盯全场中心；田内摄像头望向所属地块中心
   const inspectionTarget = isGlobalCamera
-    ? SCENE_CENTER.clone()
+    ? sceneCenter()
     : new THREE.Vector3(plotCenter.x, plotCenter.y + 0.6, plotCenter.z);
 
   // P10: 打印机位 / 注视点 / 模型前向，便于核对朝向是否正确
@@ -1090,9 +1124,33 @@ function rebuild() {
     scene.remove(farm.root);
     farm.dispose();
   }
-  farm = createPaddyFieldScene(props.plotStates, props.componentManager);
+  farm = createPaddyFieldScene(
+    props.plotStates,
+    props.componentManager,
+    activeRegionConfigs(),
+    { previewMode: props.previewMode }
+  );
   scene.add(farm.root);
   setSelected(selectedId);
+  previewNeedsRender = true;
+}
+
+function scheduleLayoutRebuild() {
+  clearTimeout(layoutRebuildTimer);
+  layoutRebuildTimer = setTimeout(() => {
+    layoutRebuildTimer = 0;
+    previewNeedsRender = true;
+    if (inspectionMode) exitInspectionView();
+    selectedId = null;
+    hoveredId = null;
+    label.visible = false;
+    emit("select", null);
+    rebuild();
+    target.copy(sceneCenter());
+    target.y = 1.5;
+    radius = overviewRadius();
+    updateCamera();
+  }, 240);
 }
 
 function disposeGroupResources(group) {
@@ -1159,6 +1217,8 @@ onMounted(() => {
   rebuild();
   applyWeather();
 
+  target.copy(sceneCenter());
+  target.y = 1.5;
   radius = overviewRadius();
   updateCamera();
 
@@ -1201,6 +1261,8 @@ onMounted(() => {
     const dt = clock.getDelta();
     const t = clock.elapsedTime;
 
+    if (props.previewMode && !previewNeedsRender) return;
+
     if (autoRotate && !dragging) {
       theta += dt * 0.09;
       updateCamera();
@@ -1226,20 +1288,32 @@ onMounted(() => {
     if (selectionRing) {
       const want = selectedId ? 0.55 : 0;
       selectionRing.material.opacity += (want - selectionRing.material.opacity) * Math.min(1, dt * 6);
-      selectionRing.scale.setScalar(1 + Math.sin(t * 2.4) * 0.05);
       const selectedEntry = selectedId && farm.registry.get(selectedId);
       if (selectedEntry) {
+        const pulse = 1 + Math.sin(t * 2.4) * 0.035;
+        selectionRing.scale.set(
+          (selectedEntry.meta?.widthM ?? 10) / 2 * pulse,
+          1,
+          (selectedEntry.meta?.depthM ?? 10) / 2 * pulse
+        );
         const worldPosition = selectedEntry.group.getWorldPosition(new THREE.Vector3());
         selectionRing.position.set(
           worldPosition.x,
           worldPosition.y + selectedEntry.top + 0.03,
           worldPosition.z
         );
+      } else {
+        selectionRing.scale.set(1, 1, 1);
       }
     }
     if (hoverRing) {
       const hoverEntry = hoveredId && farm.registry.get(hoveredId);
       if (hoverEntry) {
+        hoverRing.scale.set(
+          (hoverEntry.meta?.widthM ?? 10) / 2,
+          1,
+          (hoverEntry.meta?.depthM ?? 10) / 2
+        );
         const worldPosition = hoverEntry.group.getWorldPosition(new THREE.Vector3());
         hoverRing.position.set(
           worldPosition.x,
@@ -1266,12 +1340,14 @@ onMounted(() => {
     }
 
     renderer.render(scene, camera);
+    previewNeedsRender = false;
   };
   animate();
 });
 
 onBeforeUnmount(() => {
   cancelAnimationFrame(rafId);
+  clearTimeout(layoutRebuildTimer);
   if (resizeObserver) resizeObserver.disconnect();
   const dom = renderer && renderer.domElement;
   if (dom) {
@@ -1305,6 +1381,48 @@ onBeforeUnmount(() => {
 watch(
   () => props.plotStates,
   () => rebuild(),
+  { deep: false }
+);
+
+watch(
+  () => props.regionConfig,
+  (next, previous) => {
+    if (!next || next.key === previous?.key) return;
+    scheduleLayoutRebuild();
+  },
+  { deep: false }
+);
+
+watch(
+  () => props.regionConfigs,
+  (next, previous) => {
+    if (!next || next === previous) return;
+    scheduleLayoutRebuild();
+  },
+  { deep: false }
+);
+
+watch(
+  () => props.previewMode,
+  () => scheduleLayoutRebuild(),
+  { deep: false }
+);
+
+watch(
+  () => props.regionConfigs,
+  (next, previous) => {
+    if (!next || next === previous) return;
+    if (inspectionMode) exitInspectionView();
+    selectedId = null;
+    hoveredId = null;
+    label.visible = false;
+    emit("select", null);
+    rebuild();
+    target.copy(sceneCenter());
+    target.y = 1.5;
+    radius = overviewRadius();
+    updateCamera();
+  },
   { deep: false }
 );
 

@@ -20,20 +20,17 @@
               <span class="eyebrow">RICE REGIONS · HUNAN</span>
               <h2 class="panel-title">种植区域</h2>
             </div>
-            <span class="region-count">双地块</span>
+            <span class="region-count">{{ scenarioTotalPlots }} 块田</span>
           </div>
-          <div class="region-switcher">
-            <button
-              v-for="region in regionCatalog"
-              :key="region.key"
-              class="region-chip"
-              :class="{ active: selectedRegion.key === region.key }"
-              @click="selectedRegion = region"
-            >
-              <span class="region-chip-dot"></span>
-              {{ region.short }}
-            </button>
+          <div class="scenario-groups-mini">
+            <div v-for="(group, index) in activeScenarioGroups" :key="group.id" class="scenario-group-mini">
+              <span>第{{ index + 1 }}组</span>
+              <strong>{{ terrainOptions.find((terrain) => terrain.key === group.terrainKey)?.short || group.terrainKey }}</strong>
+              <small>{{ group.plotCount }} 块 · {{ group.areaMu }} 亩/块</small>
+            </div>
+            <div v-if="!activeScenarioGroups.length" class="scenario-group-empty">尚未生成田块</div>
           </div>
+          <button class="scenario-edit-btn" type="button" @click="openScenarioSetup">重新规划场景</button>
 
           <!-- P3 布局重构：地形/气候/土壤/风险 → 折叠面板 -->
           <button class="accordion-toggle" type="button" @click="regionAccordionOpen = !regionAccordionOpen">
@@ -54,7 +51,7 @@
                 <li><span>风险</span><strong>{{ selectedRegion.risk }}</strong></li>
               </ul>
               <div class="plot-structure-mini">
-                <span>{{ PLOT_STRUCTURE.modelCount }} 地块模型 · {{ PLOT_STRUCTURE.zonesPerPlot }} 子区/块 · {{ PLOT_STRUCTURE.zoneSizeM }}m 格 · 总 {{ PLOT_STRUCTURE.totalSizeM }}m</span>
+                <span>{{ PLOT_STRUCTURE.modelCount }} 块田 · {{ PLOT_STRUCTURE.layoutLabel }} · 场地 {{ PLOT_STRUCTURE.totalSizeM }}</span>
               </div>
             </div>
           </Transition>
@@ -82,10 +79,19 @@
         <div class="weather-now">
           <span class="weather-emoji">{{ weatherEmoji }}</span>
           <div class="weather-now-copy">
-            <span class="weather-label">{{ weatherLabel }}</span>
+            <span class="weather-now-line">
+              <span class="weather-label">{{ weatherLabel }}</span>
+              <strong class="weather-now-temp">{{ currentWeatherView.temperature }}°</strong>
+            </span>
             <span class="weather-region">{{ selectedRegion.short }} · {{ weatherMode === "actual" ? weatherFreshnessLabel : "场景模拟" }}</span>
           </div>
           <span class="weather-mode-label">{{ weatherModeLabel }}</span>
+        </div>
+        <div v-if="weatherMode === 'actual'" class="weather-glance">
+          <div v-for="metric in weatherMetricItems.slice(0, 4)" :key="metric.key" class="weather-glance-item">
+            <span>{{ metric.label }}</span>
+            <strong>{{ metric.value }}</strong>
+          </div>
         </div>
 
         <!-- P3 布局重构：土壤剖面从右侧搬至左侧，填补左下方空白 -->
@@ -133,7 +139,9 @@
           :plot-states="plotStates"
           :weather="weather"
           :weather-snapshot="weatherSnapshot"
-          :component-manager="componentManager"
+          :component-manager="scenarioSetupOpen ? null : componentManager"
+          :region-configs="activeRegionConfigs"
+          :preview-mode="scenarioSetupOpen"
           :harvest-amount="harvestAmount"
           @select="onSelect"
           @component-select="onComponentSelect"
@@ -141,15 +149,6 @@
           @view-change="sceneView = $event"
         />
         <div class="scan-line"></div>
-        <div class="scene-view-switch" role="group" aria-label="3D 场景取景区域">
-          <button
-            v-for="view in sceneViewOptions"
-            :key="view.key"
-            type="button"
-            :class="{ active: sceneView === view.key }"
-            @click="setSceneView(view.key)"
-          >{{ view.label }}</button>
-        </div>
         <div class="scene-legend">
           <span><i class="lg normal"></i> 正常</span>
           <span><i class="lg warning"></i> 告警</span>
@@ -770,19 +769,96 @@
           </div>
 
           <!-- 实际天气：逐小时预报 -->
-          <div v-if="weatherMode === 'actual'" class="drawer-section">
-            <h3 class="drawer-subtitle">逐小时预报</h3>
-            <div v-if="forecastItems.length" class="forecast-list">
-              <div class="forecast-items">
-                <div v-for="item in forecastItems" :key="item.time" class="forecast-item">
-                  <span class="forecast-time num">{{ item.time }}</span>
-                  <span class="forecast-icon">{{ item.emoji }}</span>
-                  <span class="forecast-label">{{ item.label }}</span>
-                  <span class="forecast-temp num">{{ item.temperature }}°</span>
+          <div v-if="weatherMode === 'actual'" class='drawer-section weather-overview-section'>
+            <div class='wx-overview'>
+              <div class='wx-overview-top'>
+                <div>
+                  <span class='wx-place'>{{ selectedRegion.name }}</span>
+                  <span class='wx-updated'>{{ weatherUpdatedLabel }}</span>
+                </div>
+                <span class='wx-source-chip' :class='actualWeatherStatus === "live" ? "is-live" : "is-cached"'>
+                  {{ actualWeatherStatus === 'live' ? '实时' : actualWeatherStatus === 'cached' ? '缓存' : '更新中' }}
+                </span>
+              </div>
+
+              <div class='wx-hero-main'>
+                <div class='wx-hero-temperature'>
+                  <span>{{ currentWeatherView.temperature }}</span><em>°</em>
+                </div>
+                <div class='wx-hero-condition'>
+                  <span class='wx-hero-icon'>{{ currentWeatherView.emoji }}</span>
+                  <div>
+                    <strong>{{ currentWeatherView.condition }}</strong>
+                    <span>体感 {{ currentWeatherView.feelsLike }}°</span>
+                  </div>
                 </div>
               </div>
+
+              <div class='wx-hero-meta'>
+                <span v-if='currentWeatherView.min != null'>今天 {{ currentWeatherView.min }}° / {{ currentWeatherView.max }}°</span>
+                <span>湿度 {{ currentWeatherView.humidity }}%</span>
+                <span>{{ currentWeatherView.windDirection }}风 {{ currentWeatherView.windLevel }}级</span>
+              </div>
+              <div v-if='dailyForecastItems[0]' class='wx-sun-row'>
+                <span>日出 {{ dailyForecastItems[0].sunrise || '--' }}</span>
+                <span>日落 {{ dailyForecastItems[0].sunset || '--' }}</span>
+              </div>
             </div>
-            <div v-else class="forecast-empty">{{ forecastMessage }}</div>
+
+            <section class='wx-block'>
+              <div class='wx-block-head'>
+                <h4>逐时预报</h4>
+                <span>降水概率</span>
+              </div>
+              <div v-if='forecastItems.length' class='wx-hourly-scroll'>
+                <div v-for='item in forecastItems' :key='item.time' class='wx-hour-item'>
+                  <span class='wx-hour-time num'>{{ item.timeLabel }}</span>
+                  <span class='wx-hour-icon'>{{ item.emoji }}</span>
+                  <strong class='num'>{{ item.temperature }}°</strong>
+                  <span class='wx-hour-rain'>{{ item.precipitationProbability }}%</span>
+                  <span class='wx-hour-wind'>{{ item.windDirection }}{{ item.windKmh }}</span>
+                </div>
+              </div>
+              <div v-else class='forecast-empty'>{{ forecastMessage }}</div>
+            </section>
+
+            <section class='wx-block'>
+              <div class='wx-block-head'>
+                <h4>未来预报</h4>
+                <span>最低 / 最高</span>
+              </div>
+              <div v-if='dailyForecastItems.length' class='wx-daily-list'>
+                <div v-for='item in dailyForecastItems' :key='item.date' class='wx-daily-row'>
+                  <div class='wx-daily-date'>
+                    <strong>{{ item.dayLabel }}</strong>
+                    <span>{{ item.dateLabel }}</span>
+                  </div>
+                  <span class='wx-daily-icon'>{{ item.emoji }}</span>
+                  <span class='wx-daily-label'>{{ item.label }}</span>
+                  <span class='wx-daily-rain'>{{ item.precipitationProbability }}%</span>
+                  <span class='wx-daily-wind'>{{ item.windDirection }} {{ item.windKmh }}</span>
+                  <div class='wx-daily-temp num'><span>{{ item.min }}°</span><i>/</i><strong>{{ item.max }}°</strong></div>
+                </div>
+              </div>
+              <div v-else class='forecast-empty'>未来天气暂不可用</div>
+            </section>
+
+            <section class='wx-block'>
+              <div class='wx-block-head'>
+                <h4>天气详情</h4>
+                <span>当前观测</span>
+              </div>
+              <div class='wx-metric-grid'>
+                <div v-for='metric in weatherMetricItems' :key='metric.key' class='wx-metric-card'>
+                  <span class='wx-metric-icon'>{{ metric.icon }}</span>
+                  <div class='wx-metric-copy'>
+                    <span>{{ metric.label }}</span>
+                    <strong>{{ metric.value }}</strong>
+                    <small>{{ metric.note }}</small>
+                  </div>
+                </div>
+              </div>
+            </section>
           </div>
 
           <!-- 模拟天气：预设 + 滑块 -->
@@ -887,6 +963,93 @@
         </div>
       </aside>
     </Transition>
+
+    <Transition name="scenario-fade">
+      <div v-if="scenarioSetupOpen" class="scenario-setup-backdrop">
+        <section class="scenario-setup-panel" role="dialog" aria-label="场景规划">
+          <header class="scenario-setup-head">
+            <div>
+              <span class="eyebrow">SCENE PLANNER</span>
+              <h2>场景规划</h2>
+              <p>选择地形、地块数量与单块面积，右侧场景会实时预览。</p>
+            </div>
+            <div class="scenario-total">
+              <strong>{{ scenarioTotalPlots }}</strong>
+              <span>/ {{ SCENARIO_LIMITS.maxTotalPlots }} 块</span>
+            </div>
+          </header>
+
+          <div class="scenario-editor-list">
+            <article v-for="(group, index) in scenarioDraft" :key="group.id" class="scenario-editor-card">
+              <div class="scenario-editor-title">
+                <strong>第 {{ index + 1 }} 组田块</strong>
+                <span>最多 {{ SCENARIO_LIMITS.maxPlotsPerGroup }} 块</span>
+                <button v-if="scenarioDraft.length > 1" type="button" class="scenario-remove" @click="removeScenarioGroup(index)">移除</button>
+              </div>
+
+              <div class="terrain-choice-grid">
+                <button
+                  v-for="terrain in terrainOptions"
+                  :key="terrain.key"
+                  type="button"
+                  class="terrain-choice"
+                  :class="{ active: group.terrainKey === terrain.key }"
+                  @click="group.terrainKey = terrain.key"
+                >
+                  <strong>{{ terrain.short }}</strong>
+                  <span>{{ terrain.terrain }}</span>
+                </button>
+              </div>
+
+              <div class="scenario-field-row">
+                <label>田块数量</label>
+                <input
+                  type="range"
+                  min="0"
+                  :max="scenarioGroupMaxCount(index)"
+                  step="1"
+                  v-model.number="group.plotCount"
+                  @input="clampScenarioGroup(index)"
+                />
+                <input
+                  class="scenario-count-input num"
+                  type="number"
+                  min="0"
+                  :max="scenarioGroupMaxCount(index)"
+                  v-model.number="group.plotCount"
+                  @input="clampScenarioGroup(index)"
+                />
+              </div>
+
+              <div class="scenario-area-row">
+                <span>单块面积</span>
+                <div class="scenario-segmented">
+                  <button
+                    v-for="area in SCENARIO_LIMITS.allowedAreasMu"
+                    :key="area"
+                    type="button"
+                    :class="{ active: group.areaMu === area }"
+                    @click="group.areaMu = area"
+                  >{{ area }} 亩</button>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <button
+            v-if="scenarioDraft.length < SCENARIO_LIMITS.maxGroups"
+            type="button"
+            class="scenario-add-group"
+            @click="addScenarioGroup"
+          >添加第二组田块</button>
+
+          <footer class="scenario-setup-actions">
+            <button v-if="scenarioConfirmed" type="button" class="scenario-cancel" @click="cancelScenarioSetup">取消</button>
+            <button type="button" class="scenario-apply" :disabled="!scenarioCanApply" @click="applyScenarioSetup">生成场景</button>
+          </footer>
+        </section>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -904,14 +1067,20 @@ import {
   ACTUAL_WEATHER_DEFAULTS,
   buildSnapshotFromKey,
   buildSnapshotFromSliders,
+  buildSnapshotFromActual,
   WEATHER_CODE_MAP,
 } from "../scene/weatherState.js";
 import { getSoilProfile } from "../api.js";
 import {
   createInitialPlotStates,
-  PLAIN_REGION_CONFIG,
-  TERRACE_REGION_CONFIG,
+  REGION_CONFIGS,
+  REGION_CONFIG_BY_KEY,
 } from "../scene/regionConfigs.ts";
+import {
+  buildScenarioRegions,
+  normalizeScenarioGroups,
+  SCENARIO_LIMITS,
+} from "../scene/scenarioBuilder.js";
 import {
   DEMO_DURATION_SECONDS,
   DEMO_TOTAL_DAYS,
@@ -942,21 +1111,72 @@ import {
 import { notify } from "../store.js";
 
 const sceneRef = ref(null);
-const sceneView = ref("all");
-const sceneViewOptions = Object.freeze([
-  { key: "all", label: "全景" },
-  { key: "plain", label: "平原田" },
-  { key: "terrace", label: "梯田" },
-]);
+const sceneView = ref("region");
+const SCENARIO_STORAGE_KEY = "agri-twin-scenario:v1";
 
-function setSceneView(view) {
-  sceneView.value = view;
-  sceneRef.value?.focusRegion?.(view);
+function loadConfirmedScenario() {
+  try {
+    const raw = localStorage.getItem(SCENARIO_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const groups = normalizeScenarioGroups(parsed?.groups || []);
+    const built = buildScenarioRegions(groups);
+    return built.totalPlots ? { groups } : null;
+  } catch (error) {
+    return null;
+  }
 }
-const plotStates = reactive(createInitialPlotStates([
-  PLAIN_REGION_CONFIG,
-  TERRACE_REGION_CONFIG,
-]));
+
+const initialConfirmedScenario = loadConfirmedScenario();
+const scenarioConfirmed = ref(initialConfirmedScenario);
+const scenarioSetupOpen = ref(!initialConfirmedScenario);
+const scenarioDraft = ref(
+  initialConfirmedScenario
+    ? initialConfirmedScenario.groups.map((group) => ({ ...group }))
+    : [{ id: "group-1", terrainKey: "plain", plotCount: 0, areaMu: 1 }]
+);
+const scenarioDraftSource = computed(() =>
+  scenarioSetupOpen.value
+    ? scenarioDraft.value
+    : scenarioConfirmed.value?.groups || []
+);
+const scenarioPreview = computed(() => {
+  const groups = normalizeScenarioGroups(scenarioDraftSource.value);
+  return {
+    groups,
+    totalPlots: groups.reduce((total, group) => total + group.plotCount, 0),
+  };
+});
+const confirmedRegionConfigs = computed(() =>
+  buildScenarioRegions(scenarioConfirmed.value?.groups || []).regions
+);
+const draftRegionConfigs = ref([]);
+let draftRegionTimer = 0;
+watch(
+  () => scenarioPreview.value.groups,
+  (groups) => {
+    clearTimeout(draftRegionTimer);
+    draftRegionTimer = setTimeout(() => {
+      draftRegionTimer = 0;
+      draftRegionConfigs.value = buildScenarioRegions(groups).regions;
+    }, 180);
+  },
+  { deep: true, immediate: true }
+);
+const activeRegionConfigs = computed(() =>
+  scenarioSetupOpen.value ? draftRegionConfigs.value : confirmedRegionConfigs.value
+);
+const activeScenarioGroups = computed(() => scenarioPreview.value.groups);
+const scenarioTotalPlots = computed(() => scenarioPreview.value.totalPlots);
+const scenarioCanApply = computed(() => scenarioTotalPlots.value > 0);
+const plotStates = reactive({});
+
+function replacePlotStates(configs) {
+  Object.keys(plotStates).forEach((key) => delete plotStates[key]);
+  Object.assign(plotStates, createInitialPlotStates(configs));
+}
+
+replacePlotStates(activeRegionConfigs.value);
 const componentManager = reactive(new FarmComponentManager());
 const placementType = ref(null);
 const inspectingCameraId = ref(null);
@@ -1154,6 +1374,89 @@ const regionCatalog = [
 ];
 
 const selectedRegion = ref(regionCatalog[0]);
+const terrainOptions = computed(() => regionCatalog.map((region) => ({
+  key: region.key,
+  short: region.short,
+  name: region.name,
+  terrain: region.terrain,
+  description: region.description,
+})));
+
+function scenarioGroupMaxCount(index) {
+  const others = scenarioDraft.value.reduce(
+    (total, group, groupIndex) => total + (groupIndex === index ? 0 : Number(group.plotCount) || 0),
+    0
+  );
+  return Math.min(SCENARIO_LIMITS.maxPlotsPerGroup, SCENARIO_LIMITS.maxTotalPlots - others);
+}
+
+function clampScenarioGroup(index) {
+  const group = scenarioDraft.value[index];
+  if (!group) return;
+  group.plotCount = Math.max(0, Math.min(scenarioGroupMaxCount(index), Math.round(Number(group.plotCount) || 0)));
+}
+
+function addScenarioGroup() {
+  if (scenarioDraft.value.length >= SCENARIO_LIMITS.maxGroups) return;
+  scenarioDraft.value.push({
+    id: `group-${scenarioDraft.value.length + 1}`,
+    terrainKey: 'hill',
+    plotCount: 0,
+    areaMu: 1,
+  });
+}
+
+function removeScenarioGroup(index) {
+  if (scenarioDraft.value.length <= 1) return;
+  scenarioDraft.value.splice(index, 1);
+}
+
+function openScenarioSetup() {
+  scenarioDraft.value = scenarioConfirmed.value?.groups?.length
+    ? scenarioConfirmed.value.groups.map((group) => ({ ...group }))
+    : [{ id: 'group-1', terrainKey: 'plain', plotCount: 0, areaMu: 1 }];
+  draftRegionConfigs.value = confirmedRegionConfigs.value;
+  scenarioSetupOpen.value = true;
+}
+
+function cancelScenarioSetup() {
+  if (!scenarioConfirmed.value) return;
+  scenarioDraft.value = scenarioConfirmed.value.groups.map((group) => ({ ...group }));
+  scenarioSetupOpen.value = false;
+}
+
+function syncSelectedRegionToScenario() {
+  const regionKey = activeRegionConfigs.value[0]?.key;
+  const matched = regionCatalog.find((region) => region.key === regionKey);
+  if (matched) selectedRegion.value = matched;
+}
+
+function applyScenarioSetup() {
+  const groups = normalizeScenarioGroups(scenarioDraft.value);
+  const built = buildScenarioRegions(groups);
+  if (!built.totalPlots) {
+    notify('请至少生成一块田');
+    return;
+  }
+  scenarioConfirmed.value = { groups };
+  try {
+    localStorage.setItem(SCENARIO_STORAGE_KEY, JSON.stringify({ groups }));
+  } catch (error) {
+    // ignore storage failures
+  }
+  replacePlotStates(built.regions);
+  componentManager.components.splice(0, componentManager.components.length);
+  componentManager.nextId = 1;
+  selectedObj.value = null;
+  placementType.value = null;
+  inspectingCameraId.value = null;
+  sceneRef.value?.selectObject?.(null);
+  scenarioSetupOpen.value = false;
+  syncSelectedRegionToScenario();
+  scanPlotAlerts();
+  notify(`场景已生成：${built.totalPlots} 块田`);
+}
+
 const REGION_SOIL_PROFILES = {
   plain: {
     plot: "洞庭湖平原示范田",
@@ -1213,16 +1516,27 @@ const terrainLabel = computed(() => ({
   mountain: "山地梯田",
   east: "山地过渡",
 }[selectedRegion.value.key] || "区域场景"));
+const selectedRegionConfig = computed(() =>
+  activeRegionConfigs.value[0] ||
+  REGION_CONFIG_BY_KEY[selectedRegion.value.key] ||
+  REGION_CONFIG_BY_KEY.plain
+);
 const weatherMode = ref("actual");
 // —— P2 新增：Drawer 开关 + 地块结构常量 ——
 const weatherDrawerOpen = ref(false);
 // P3 布局重构：左侧折叠面板默认收起
 const regionAccordionOpen = ref(false);
-const PLOT_STRUCTURE = Object.freeze({
-  modelCount: 2,
-  zonesPerPlot: 25,
-  zoneSizeM: "10 × 10",
-  totalSizeM: "52.4 × 52.4",
+const PLOT_STRUCTURE = computed(() => {
+  const config = selectedRegionConfig.value;
+  const terrainNames = { plain: "平原", hill: "丘陵", south: "喀斯特", mountain: "梯田", east: "河谷" };
+  const groups = activeScenarioGroups.value.filter((group) => group.plotCount > 0);
+  return {
+    modelCount: scenarioTotalPlots.value,
+    layoutLabel: groups.map((group) => `${terrainNames[group.terrainKey]}${group.plotCount}块`).join(" + ") || "待规划",
+    totalSizeM: config?.cells?.length
+      ? `${config.totalWidthM.toFixed(1)} × ${config.totalDepthM.toFixed(1)} m`
+      : "尚未生成",
+  };
 });
 const liveWeatherEnabled = computed(() => weatherMode.value === "actual");
 const weather = ref("sunny");
@@ -1230,6 +1544,10 @@ const weatherSnapshot = ref(ACTUAL_WEATHER_DEFAULTS);
 const simulatedWeather = ref("custom");
 const actualWeatherStatus = ref("loading");
 const dailyTemperatureRange = ref(null);
+const currentWeatherData = ref({});
+const airQualityData = ref(null);
+const dailyForecastItems = ref([]);
+const weatherUpdatedAt = ref("");
 
 const INITIAL_SIM_OPTIMAL = optimalStageValues("germination");
 // 自定义模拟天气初始值取发芽期适宜区中位数
@@ -1274,7 +1592,7 @@ const weatherFreshnessLabel = computed(() => ({
 }[actualWeatherStatus.value] || "天气预报"));
 const forecastItems = ref([]);
 const forecastMessage = ref("正在获取天气预报...");
-const WEATHER_CACHE_PREFIX = "agri-twin-weather:v2:";
+const WEATHER_CACHE_PREFIX = "agri-twin-weather:v3:";
 const WEATHER_CACHE_MAX_AGE_MS = 15 * 60 * 1000;
 const weathers = [
   { key: "sunny", label: "晴" },
@@ -1294,6 +1612,95 @@ const weatherLabel = computed(() => {
 const weatherEmoji = computed(() => {
   if (weatherMode.value === "actual" && actualWeatherStatus.value === "unavailable") return "🌐";
   return weatherEmojis[weather.value] || "🌥️";
+});
+
+function finiteOr(value, fallback = null) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function compassDirection(degrees) {
+  const value = finiteOr(degrees, 0);
+  const labels = ["北", "东北", "东", "东南", "南", "西南", "西", "西北"];
+  return labels[Math.round((((value % 360) + 360) % 360) / 45) % 8];
+}
+
+function beaufortLevel(ms) {
+  const speed = Math.max(0, finiteOr(ms, 0));
+  const limits = [0.3, 1.6, 3.4, 5.5, 8.0, 10.8, 13.9, 17.2, 20.8, 24.5, 28.5, 32.7];
+  return Math.max(0, limits.findIndex((limit) => speed < limit));
+}
+
+function uvLevel(value) {
+  const uv = finiteOr(value, 0);
+  if (uv < 3) return "低";
+  if (uv < 6) return "中等";
+  if (uv < 8) return "高";
+  if (uv < 11) return "很高";
+  return "极高";
+}
+
+function airQualityLevel(value) {
+  const aqi = finiteOr(value, null);
+  if (aqi == null) return "暂无";
+  if (aqi <= 20) return "优";
+  if (aqi <= 40) return "良";
+  if (aqi <= 60) return "中等";
+  if (aqi <= 80) return "较差";
+  if (aqi <= 100) return "差";
+  return "极差";
+}
+
+const currentWeatherView = computed(() => {
+  const current = currentWeatherData.value || {};
+  const snap = weatherSnapshot.value || ACTUAL_WEATHER_DEFAULTS;
+  const airCurrent = airQualityData.value?.current || {};
+  const temperature = finiteOr(current.temperature_2m, finiteOr(snap.temperature, 0));
+  const windMs = finiteOr(current.wind_speed_10m, finiteOr(snap.wind, 0) * 3.6) / 3.6;
+  const range = dailyTemperatureRange.value;
+  const weatherKey = WEATHER_CODE_MAP[Number(current.weather_code)] || weather.value;
+  return {
+    temperature: Math.round(temperature),
+    feelsLike: Math.round(finiteOr(current.apparent_temperature, temperature)),
+    min: range?.min ?? null,
+    max: range?.max ?? null,
+    humidity: Math.round(finiteOr(current.relative_humidity_2m, snap.humidity)),
+    windMs,
+    windKmh: Math.round(windMs * 3.6),
+    windDirection: compassDirection(current.wind_direction_10m),
+    windLevel: beaufortLevel(windMs),
+    uv: finiteOr(current.uv_index, null),
+    visibilityKm: finiteOr(current.visibility, null) == null ? null : finiteOr(current.visibility) / 1000,
+    pressure: finiteOr(current.pressure_msl, null),
+    precipitation: finiteOr(current.precipitation, finiteOr(snap.rain, 0)),
+    precipitationProbability: finiteOr(current.precipitation_probability, null),
+    aqi: finiteOr(airCurrent.european_aqi, finiteOr(airCurrent.us_aqi, null)),
+    pm25: finiteOr(airCurrent.pm2_5, null),
+    weatherKey,
+    condition: weatherLabels[weatherKey] || "天气状况未知",
+    emoji: weatherEmojis[weatherKey] || "🌥️",
+  };
+});
+
+const weatherMetricItems = computed(() => {
+  const view = currentWeatherView.value;
+  return [
+    { key: "feels", icon: "℃", label: "体感温度", value: `${view.feelsLike}°`, note: `实际 ${view.temperature}°` },
+    { key: "humidity", icon: "RH", label: "空气湿度", value: `${view.humidity}%`, note: view.humidity > 85 ? "偏湿" : view.humidity < 40 ? "偏干" : "舒适" },
+    { key: "wind", icon: "风", label: "风向风力", value: `${view.windDirection}风`, note: `${view.windKmh} km/h · ${view.windLevel}级` },
+    { key: "uv", icon: "UV", label: "紫外线", value: view.uv == null ? "--" : `${Math.round(view.uv)}级`, note: uvLevel(view.uv) },
+    { key: "visibility", icon: "视", label: "能见度", value: view.visibilityKm == null ? "--" : `${view.visibilityKm.toFixed(1)} km`, note: view.visibilityKm == null ? "暂无数据" : view.visibilityKm >= 10 ? "通透" : "一般" },
+    { key: "pressure", icon: "压", label: "气压", value: view.pressure == null ? "--" : `${Math.round(view.pressure)} hPa`, note: view.pressure == null ? "暂无数据" : "海平面气压" },
+    { key: "aqi", icon: "AQ", label: "空气质量", value: view.aqi == null ? "--" : String(Math.round(view.aqi)), note: view.aqi == null ? "暂无数据" : `${airQualityLevel(view.aqi)}${view.pm25 == null ? "" : ` · PM2.5 ${view.pm25.toFixed(0)}`}` },
+    { key: "rain", icon: "雨", label: "降水", value: `${view.precipitationProbability == null ? "--" : Math.round(view.precipitationProbability) + "%"}`, note: `${view.precipitation.toFixed(1)} mm/h` },
+  ];
+});
+
+const weatherUpdatedLabel = computed(() => {
+  if (!weatherUpdatedAt.value) return weatherFreshnessLabel.value;
+  const raw = String(weatherUpdatedAt.value);
+  const timePart = raw.includes("T") ? raw.slice(11, 16) : raw;
+  return `${weatherFreshnessLabel.value} · ${timePart}`;
 });
 
 const soilMetrics = ref([
@@ -1603,7 +2010,7 @@ function statusClass(s) {
 
 function onSelect(obj) {
   if (obj?.type === "plot") {
-    sceneView.value = String(obj.id).startsWith("Terrace") ? "terrace" : "plain";
+    sceneView.value = selectedRegion.value.key;
   }
   if (placementType.value && obj?.type === "plot") {
     if (componentScope.value === COMPONENT_SCOPES.GLOBAL) {
@@ -1616,12 +2023,14 @@ function onSelect(obj) {
       return;
     }
     const point = obj.placementPoint;
+    const halfWidth = Math.max(1, ((obj.widthM ?? 10) / 2) - 0.8);
+    const halfDepth = Math.max(1, ((obj.depthM ?? 10) / 2) - 0.8);
     const placement = placementType.value === COMPONENT_TYPES.SUNSHADE
       ? { x: 0, z: 0, rotationY: 0 }
       : point && Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.z))
         ? {
-            x: Math.max(-4.2, Math.min(4.2, Number(point.x))),
-            z: Math.max(-4.2, Math.min(4.2, Number(point.z))),
+            x: Math.max(-halfWidth, Math.min(halfWidth, Number(point.x))),
+            z: Math.max(-halfDepth, Math.min(halfDepth, Number(point.z))),
             rotationY: Math.atan2(Number(point.x), Number(point.z)),
           }
         : null;
@@ -1932,11 +2341,13 @@ const ALERT_ISSUE_DEFS = Object.freeze({
   lightHigh: { label: "光照过强", extreme: "max", digits: 0, unit: "lux" },
 });
 
-// 单地块显示名：Plain-R01-C02 → 平原 1行2格
+// 单地块显示名：Karst-R02-C04 -> 喀斯特 2行4格
 function plotDisplayName(plotId) {
-  const m = /^(Plain|Terrace)-R(\d{2})-C(\d{2})$/.exec(String(plotId || ""));
+  const m = /^(.+)-R(\d{2})-C(\d{2})$/.exec(String(plotId || ""));
   if (!m) return String(plotId || "");
-  return `${m[1] === "Plain" ? "平原" : "梯田"} ${Number(m[2])}行${Number(m[3])}格`;
+  const labels = { Plain: "平原", Hill: "丘陵", Karst: "喀斯特", Mountain: "山地", Valley: "河谷" };
+  const prefix = m[1].replace(/^G\d+/, "");
+  return `${labels[prefix] || prefix} ${Number(m[2])}行${Number(m[3])}格`;
 }
 
 // P7: 扫描全部地块 → 按问题类型分组 → 少量异常列明细，大面积异常合并
@@ -2243,22 +2654,31 @@ async function loadRegionWeather(region) {
       cached = parsed;
       if (!hasCurrentRegionWeather) {
         dailyTemperatureRange.value = parsed.range;
+        currentWeatherData.value = parsed.currentWeather || {};
+        airQualityData.value = parsed.airQuality || null;
+        dailyForecastItems.value = Array.isArray(parsed.dailyForecastItems) ? parsed.dailyForecastItems : [];
+        weatherUpdatedAt.value = parsed.updatedAt || parsed.currentWeather?.time || "";
         const currentTime = `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`;
         forecastItems.value = parsed.forecastItems
           .filter((item) => typeof item.time === "string" && item.time > currentTime)
-          .slice(0, 4);
+          .slice(0, 24);
         forecastMessage.value = "使用今日缓存预报";
-        // 快照回退用 sunny preset（缓存里存的是 key，不是完整 snapshot）
         weather.value = parsed.weatherCode
           ? (WEATHER_CODE_MAP[Number(parsed.weatherCode)] || "cloudy")
           : "sunny";
-        weatherSnapshot.value = buildSnapshotFromKey(weather.value);
+        weatherSnapshot.value = parsed.currentWeather
+          ? buildSnapshotFromActual(parsed.currentWeather)
+          : buildSnapshotFromKey(weather.value);
         actualWeatherStatus.value = "cached";
         displayedWeatherRegionKey = region.key;
       }
     } else if (!hasCurrentRegionWeather) {
       dailyTemperatureRange.value = null;
       forecastItems.value = [];
+      dailyForecastItems.value = [];
+      currentWeatherData.value = {};
+      airQualityData.value = null;
+      weatherUpdatedAt.value = "";
       forecastMessage.value = "正在获取天气预报...";
       actualWeatherStatus.value = "loading";
       displayedWeatherRegionKey = "";
@@ -2268,6 +2688,10 @@ async function loadRegionWeather(region) {
     if (!hasCurrentRegionWeather) {
       dailyTemperatureRange.value = null;
       forecastItems.value = [];
+      dailyForecastItems.value = [];
+      currentWeatherData.value = {};
+      airQualityData.value = null;
+      weatherUpdatedAt.value = "";
       forecastMessage.value = "正在获取天气预报...";
       actualWeatherStatus.value = "loading";
     }
@@ -2290,6 +2714,10 @@ async function loadRegionWeather(region) {
         actualWeatherStatus.value = "cached";
       } else {
         forecastItems.value = [];
+        dailyForecastItems.value = [];
+        currentWeatherData.value = {};
+        airQualityData.value = null;
+        weatherUpdatedAt.value = "";
         dailyTemperatureRange.value = null;
         forecastMessage.value = "天气预报暂时不可用，请检查网络";
         actualWeatherStatus.value = "unavailable";
@@ -2302,6 +2730,9 @@ async function loadRegionWeather(region) {
     const data = result.raw;
     const current = data.current || {};
     const daily = data.daily || {};
+    currentWeatherData.value = current;
+    airQualityData.value = data.airQuality || null;
+    weatherUpdatedAt.value = current.time || new Date().toISOString();
 
     const minimum = Number(daily.temperature_2m_min?.[0]);
     const maximum = Number(daily.temperature_2m_max?.[0]);
@@ -2309,20 +2740,59 @@ async function loadRegionWeather(region) {
       dailyTemperatureRange.value = { min: Math.round(minimum), max: Math.round(maximum) };
     }
 
+    const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+    const todayKey = localDateKey();
+    dailyForecastItems.value = (daily.time || []).slice(0, 7).map((date, index) => {
+      const forecast = WEATHER_CODE_MAP[Number(daily.weather_code?.[index])] || "cloudy";
+      const parsedDate = new Date(`${date}T12:00:00`);
+      const dayLabel = date === todayKey
+        ? "今天"
+        : Number.isNaN(parsedDate.getTime()) ? date.slice(5) : weekdays[parsedDate.getDay()];
+      return {
+        date,
+        dayLabel,
+        dateLabel: date.slice(5).replace("-", "/"),
+        key: forecast,
+        emoji: weatherEmojis[forecast] || "🌥️",
+        label: weatherLabels[forecast] || "多云",
+        min: Math.round(Number(daily.temperature_2m_min?.[index])),
+        max: Math.round(Number(daily.temperature_2m_max?.[index])),
+        precipitationProbability: Math.round(finiteOr(daily.precipitation_probability_max?.[index], 0)),
+        uv: finiteOr(daily.uv_index_max?.[index], null),
+        windKmh: Math.round(finiteOr(daily.wind_speed_10m_max?.[index], 0)),
+        windDirection: compassDirection(daily.wind_direction_10m_dominant?.[index]),
+        sunrise: daily.sunrise?.[index] || "",
+        sunset: daily.sunset?.[index] || "",
+      };
+    });
+
     const times = data.hourly?.time || [];
     const temperatures = data.hourly?.temperature_2m || [];
     const codes = data.hourly?.weather_code || [];
+    const feels = data.hourly?.apparent_temperature || [];
+    const rainChance = data.hourly?.precipitation_probability || [];
+    const humidity = data.hourly?.relative_humidity_2m || [];
+    const windSpeed = data.hourly?.wind_speed_10m || [];
+    const windDirection = data.hourly?.wind_direction_10m || [];
     const currentTime = current.time || "";
     const upcoming = times
       .map((time, index) => ({ time, index }))
       .filter((item) => item.time > currentTime)
-      .slice(0, 4);
+      .slice(0, 24);
     forecastItems.value = upcoming.map(({ time, index }) => {
       const forecast = WEATHER_CODE_MAP[Number(codes[index])] || "cloudy";
       return {
-        time: time.slice(11, 16),
+        time,
+        timeLabel: time.slice(11, 16),
         key: forecast,
+        emoji: weatherEmojis[forecast] || "🌥️",
+        label: weatherLabels[forecast] || "多云",
         temperature: Math.round(Number(temperatures[index])),
+        feelsLike: Math.round(finiteOr(feels[index], temperatures[index])),
+        precipitationProbability: Math.round(finiteOr(rainChance[index], 0)),
+        humidity: Math.round(finiteOr(humidity[index], 0)),
+        windKmh: Math.round(finiteOr(windSpeed[index], 0)),
+        windDirection: compassDirection(windDirection[index]),
       };
     });
     if (!forecastItems.value.length) forecastMessage.value = "暂无后续时段预报";
@@ -2336,6 +2806,10 @@ async function loadRegionWeather(region) {
       date: localDateKey(),
       range: dailyTemperatureRange.value,
       forecastItems: forecastItems.value,
+      dailyForecastItems: dailyForecastItems.value,
+      currentWeather: current,
+      airQuality: data.airQuality || null,
+      updatedAt: current.time,
       weatherCode: current.weather_code,
       precipitation: current.precipitation,
       savedAt: new Date().toISOString(),
@@ -2352,6 +2826,10 @@ async function loadRegionWeather(region) {
         actualWeatherStatus.value = "cached";
       } else {
         forecastItems.value = [];
+        dailyForecastItems.value = [];
+        currentWeatherData.value = {};
+        airQualityData.value = null;
+        weatherUpdatedAt.value = "";
         dailyTemperatureRange.value = null;
         forecastMessage.value = "天气预报暂时不可用，请检查网络";
         actualWeatherStatus.value = "unavailable";
@@ -2399,6 +2877,7 @@ watch(
 
 onMounted(async () => {
   updateClock();
+  syncSelectedRegionToScenario();
   scanPlotAlerts();           // 首次扫描
   clockTimer = setInterval(updateClock, 1000);
   alertsTimer = setInterval(scanPlotAlerts, 1000);  // P5: 每秒扫 — 和 simulation tick 对齐，UI 红 → 告警立即出
@@ -2430,6 +2909,7 @@ function onWeatherVisibilityChange() {
 
 onBeforeUnmount(() => {
   cancelAnimationFrame(harvestRaf);
+  clearTimeout(draftRegionTimer);
   clearInterval(clockTimer);
   clearInterval(alertsTimer);
   clearInterval(jitterTimer);
@@ -4198,6 +4678,53 @@ onBeforeUnmount(() => {
   color: #e8f1ff;
 }
 
+.weather-now-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.weather-now-temp {
+  color: #eafcff;
+  font-size: 19px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.weather-glance {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin: -6px 0 12px;
+}
+
+.weather-glance-item {
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid rgba(125, 211, 252, 0.1);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.weather-glance-item span,
+.weather-glance-item strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weather-glance-item span {
+  color: #7394a3;
+  font-size: 8px;
+}
+
+.weather-glance-item strong {
+  margin-top: 2px;
+  color: #dff8ff;
+  font-size: 11px;
+}
+
 .soil-summary {
   display: flex;
   align-items: center;
@@ -4364,6 +4891,326 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
+.weather-overview-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.wx-overview {
+  padding: 16px;
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  border-radius: 14px;
+  background:
+    linear-gradient(150deg, rgba(28, 108, 137, 0.48), rgba(8, 24, 36, 0.9) 58%),
+    #0b1d2a;
+}
+
+.wx-overview-top,
+.wx-block-head,
+.wx-hero-meta,
+.wx-sun-row {
+  display: flex;
+  align-items: center;
+}
+
+.wx-overview-top,
+.wx-block-head {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.wx-place,
+.wx-updated {
+  display: block;
+}
+
+.wx-place {
+  color: #eafaff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.wx-updated {
+  margin-top: 3px;
+  color: #8fb9c7;
+  font-size: 9px;
+}
+
+.wx-source-chip {
+  padding: 3px 8px;
+  border: 1px solid rgba(125, 211, 252, 0.24);
+  border-radius: 999px;
+  color: #9bd8e9;
+  font-size: 9px;
+}
+
+.wx-source-chip.is-live {
+  border-color: rgba(52, 211, 153, 0.42);
+  color: #8af0bd;
+}
+
+.wx-hero-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 18px 0 12px;
+}
+
+.wx-hero-temperature {
+  display: flex;
+  align-items: flex-start;
+  color: #f4fdff;
+  font-size: 68px;
+  font-weight: 300;
+  line-height: 0.86;
+  letter-spacing: 0;
+}
+
+.wx-hero-temperature em {
+  margin-top: 3px;
+  color: #9ed9e8;
+  font-size: 24px;
+  font-style: normal;
+}
+
+.wx-hero-condition {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 132px;
+}
+
+.wx-hero-icon {
+  font-size: 38px;
+  line-height: 1;
+}
+
+.wx-hero-condition strong,
+.wx-hero-condition span {
+  display: block;
+}
+
+.wx-hero-condition strong {
+  color: #f1fcff;
+  font-size: 16px;
+}
+
+.wx-hero-condition span {
+  margin-top: 4px;
+  color: #9ec3cf;
+  font-size: 11px;
+}
+
+.wx-hero-meta {
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  color: #c3e2e9;
+  font-size: 10px;
+}
+
+.wx-sun-row {
+  justify-content: space-between;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(174, 227, 239, 0.1);
+  color: #79a5b0;
+  font-size: 9px;
+}
+
+.wx-block {
+  padding: 12px;
+  border: 1px solid rgba(125, 211, 252, 0.12);
+  border-radius: 12px;
+  background: rgba(4, 16, 25, 0.58);
+}
+
+.wx-block-head {
+  margin-bottom: 10px;
+}
+
+.wx-block-head h4 {
+  margin: 0;
+  color: #dff8ff;
+  font-size: 12px;
+}
+
+.wx-block-head span {
+  color: #6f96a2;
+  font-size: 9px;
+}
+
+.wx-hourly-scroll {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  padding: 1px 1px 7px;
+  scrollbar-width: thin;
+}
+
+.wx-hour-item {
+  flex: 0 0 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  border: 1px solid rgba(125, 211, 252, 0.08);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.wx-hour-time,
+.wx-hour-rain,
+.wx-hour-wind {
+  color: #7fa6b3;
+  font-size: 9px;
+}
+
+.wx-hour-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.wx-hour-item strong {
+  color: #e8fbff;
+  font-size: 12px;
+}
+
+.wx-hour-rain {
+  color: #6ed7ee;
+}
+
+.wx-daily-list {
+  display: grid;
+  gap: 2px;
+}
+
+.wx-daily-row {
+  display: grid;
+  grid-template-columns: 52px 24px minmax(42px, 1fr) 34px 58px 64px;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 4px 2px;
+  border-top: 1px solid rgba(125, 211, 252, 0.065);
+  color: #bcd9e2;
+  font-size: 10px;
+}
+
+.wx-daily-row:first-child {
+  border-top: 0;
+}
+
+.wx-daily-date strong,
+.wx-daily-date span {
+  display: block;
+}
+
+.wx-daily-date strong {
+  color: #e5f9ff;
+  font-size: 10px;
+}
+
+.wx-daily-date span,
+.wx-daily-rain,
+.wx-daily-wind {
+  color: #71949f;
+  font-size: 8px;
+}
+
+.wx-daily-icon {
+  font-size: 18px;
+  text-align: center;
+}
+
+.wx-daily-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wx-daily-rain {
+  color: #63cce2;
+  text-align: right;
+}
+
+.wx-daily-temp {
+  display: flex;
+  justify-content: flex-end;
+  gap: 3px;
+  color: #8baab2;
+}
+
+.wx-daily-temp i {
+  color: #466772;
+  font-style: normal;
+}
+
+.wx-daily-temp strong {
+  color: #f0fcff;
+}
+
+.wx-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.wx-metric-card {
+  display: flex;
+  gap: 9px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid rgba(125, 211, 252, 0.09);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.027);
+}
+
+.wx-metric-icon {
+  flex: 0 0 27px;
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  border: 1px solid rgba(94, 234, 212, 0.18);
+  border-radius: 7px;
+  color: #7de4ef;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.wx-metric-copy {
+  min-width: 0;
+}
+
+.wx-metric-copy span,
+.wx-metric-copy small,
+.wx-metric-copy strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wx-metric-copy span {
+  color: #7295a0;
+  font-size: 8px;
+}
+
+.wx-metric-copy strong {
+  margin-top: 2px;
+  color: #e7fbff;
+  font-size: 13px;
+}
+
+.wx-metric-copy small {
+  margin-top: 1px;
+  color: #8cb0b8;
+  font-size: 8px;
+}
+
 .weather-btns {
   display: flex;
   gap: 8px;
@@ -4393,8 +5240,8 @@ onBeforeUnmount(() => {
   box-shadow: 0 0 14px rgba(0, 229, 255, 0.35);
 }
 
-.weather-drawer {
-  width: 430px;
+.drawer-panel.weather-drawer {
+  width: 472px;
   max-width: 94vw;
 }
 
@@ -5415,5 +6262,357 @@ onBeforeUnmount(() => {
 /* 土壤剖面在含水时整体色调微微加深 */
 .sp-stack.is-wetting .sp-layer {
   filter: saturate(1.05) brightness(1.02);
+}
+
+/* —— 自定义场景规划 —— */
+.scenario-groups-mini {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+
+.scenario-group-mini {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 8px;
+  border: 1px solid rgba(125, 211, 252, 0.12);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.scenario-group-mini span,
+.scenario-group-mini small {
+  color: #708f9c;
+  font-size: 8px;
+}
+
+.scenario-group-mini strong {
+  overflow: hidden;
+  color: #dff8ff;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scenario-group-mini small {
+  text-align: right;
+}
+
+.scenario-group-empty {
+  padding: 10px;
+  border: 1px dashed rgba(125, 211, 252, 0.16);
+  border-radius: 7px;
+  color: #67838f;
+  font-size: 9px;
+  text-align: center;
+}
+
+.scenario-edit-btn {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 7px 9px;
+  border: 1px solid rgba(94, 234, 212, 0.24);
+  border-radius: 7px;
+  background: rgba(94, 234, 212, 0.06);
+  color: #8de7dc;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.scenario-edit-btn:hover {
+  border-color: rgba(94, 234, 212, 0.5);
+  background: rgba(94, 234, 212, 0.11);
+}
+
+.scenario-setup-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(3, 9, 15, 0.76);
+}
+
+.scenario-setup-panel {
+  width: min(780px, 96vw);
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 20px;
+  border: 1px solid rgba(94, 234, 212, 0.22);
+  border-radius: 14px;
+  background: #0b1722;
+  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.46);
+}
+
+.scenario-setup-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(125, 211, 252, 0.1);
+}
+
+.scenario-setup-head h2 {
+  margin: 4px 0 5px;
+  color: #effdff;
+  font-size: 20px;
+  letter-spacing: 0;
+}
+
+.scenario-setup-head p {
+  margin: 0;
+  color: #819eaa;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.scenario-total {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 92px;
+  padding: 8px 10px;
+  border: 1px solid rgba(94, 234, 212, 0.2);
+  border-radius: 8px;
+  background: rgba(94, 234, 212, 0.06);
+}
+
+.scenario-total strong {
+  color: #8ff4e6;
+  font-size: 22px;
+}
+
+.scenario-total span {
+  color: #6d96a1;
+  font-size: 9px;
+}
+
+.scenario-editor-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.scenario-editor-card {
+  display: grid;
+  gap: 11px;
+  padding: 12px;
+  border: 1px solid rgba(125, 211, 252, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.022);
+}
+
+.scenario-editor-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scenario-editor-title strong {
+  color: #dff8ff;
+  font-size: 12px;
+}
+
+.scenario-editor-title span {
+  color: #66838e;
+  font-size: 9px;
+}
+
+.scenario-remove {
+  margin-left: auto;
+  padding: 4px 7px;
+  border: 1px solid rgba(251, 113, 133, 0.25);
+  border-radius: 6px;
+  background: rgba(251, 113, 133, 0.06);
+  color: #f7a4b0;
+  font: inherit;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.terrain-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.terrain-choice {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 5px;
+  border: 1px solid rgba(125, 211, 252, 0.1);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.022);
+  color: #9cb8c2;
+  font: inherit;
+  cursor: pointer;
+}
+
+.terrain-choice strong,
+.terrain-choice span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terrain-choice strong {
+  color: #dff8ff;
+  font-size: 10px;
+}
+
+.terrain-choice span {
+  color: #66838e;
+  font-size: 8px;
+}
+
+.terrain-choice.active {
+  border-color: rgba(94, 234, 212, 0.55);
+  background: rgba(94, 234, 212, 0.11);
+  box-shadow: inset 0 0 0 1px rgba(94, 234, 212, 0.1);
+}
+
+.scenario-field-row,
+.scenario-area-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.scenario-field-row label,
+.scenario-area-row > span {
+  flex: 0 0 58px;
+  color: #7d9aa4;
+  font-size: 9px;
+}
+
+.scenario-field-row input[type='range'] {
+  flex: 1;
+  min-width: 100px;
+  accent-color: #5eead4;
+}
+
+.scenario-count-input {
+  width: 58px;
+  padding: 5px 6px;
+  border: 1px solid rgba(125, 211, 252, 0.16);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.035);
+  color: #e5fbff;
+  font: inherit;
+  font-size: 10px;
+  text-align: center;
+}
+
+.scenario-segmented {
+  display: flex;
+  gap: 4px;
+}
+
+.scenario-segmented button {
+  padding: 5px 12px;
+  border: 1px solid rgba(125, 211, 252, 0.12);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.025);
+  color: #83a4af;
+  font: inherit;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.scenario-segmented button.active {
+  border-color: rgba(94, 234, 212, 0.5);
+  background: rgba(94, 234, 212, 0.12);
+  color: #a8f4ea;
+}
+
+.scenario-add-group {
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px;
+  border: 1px dashed rgba(125, 211, 252, 0.22);
+  border-radius: 8px;
+  background: transparent;
+  color: #8ac5d2;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.scenario-setup-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(125, 211, 252, 0.1);
+}
+
+.scenario-cancel,
+.scenario-apply {
+  padding: 8px 18px;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.scenario-cancel {
+  border: 1px solid rgba(125, 211, 252, 0.16);
+  background: rgba(255, 255, 255, 0.025);
+  color: #91aab3;
+}
+
+.scenario-apply {
+  border: 1px solid rgba(94, 234, 212, 0.45);
+  background: rgba(94, 234, 212, 0.14);
+  color: #c9fff7;
+}
+
+.scenario-apply:disabled {
+  border-color: rgba(125, 211, 252, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  color: #516972;
+  cursor: not-allowed;
+}
+
+.scenario-fade-enter-active,
+.scenario-fade-leave-active {
+  transition: opacity 0.18s ease;
+}
+
+.scenario-fade-enter-from,
+.scenario-fade-leave-to {
+  opacity: 0;
+}
+
+@media (max-width: 680px) {
+  .scenario-setup-backdrop {
+    padding: 8px;
+  }
+
+  .scenario-setup-panel {
+    width: 100%;
+    max-height: 94vh;
+    padding: 14px;
+  }
+
+  .terrain-choice-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .scenario-field-row {
+    flex-wrap: wrap;
+  }
+
+  .scenario-field-row input[type='range'] {
+    min-width: 160px;
+  }
 }
 </style>

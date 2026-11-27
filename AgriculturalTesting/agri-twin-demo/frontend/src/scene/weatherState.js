@@ -225,7 +225,8 @@ export function buildSnapshotFromActual(raw = {}) {
 
   // —— Open-Meteo 不返回直接的 lux，用云量估算 ——
   // cloudcover 0-100%：lux ≈ 18000 × (1 - cloudcover/120)，雨天额外砍半
-  const cloudcover = Number.isFinite(Number(raw.cloudcover)) ? Number(raw.cloudcover) : 50;
+  const cloudValue = raw.cloudcover ?? raw.cloud_cover;
+  const cloudcover = Number.isFinite(Number(cloudValue)) ? Number(cloudValue) : 50;
   let light = 18000 * (1 - clamp(cloudcover, 0, 100) / 120);
   if (rain > 0.5) light *= 0.5;
   light = Math.round(clamp(light, 0, 30000));

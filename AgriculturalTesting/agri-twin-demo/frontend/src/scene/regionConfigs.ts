@@ -1,24 +1,24 @@
-import type { Object3D } from "three";
+import type { Object3D } from 'three';
 import {
   applyComponentEffects,
   update as updatePlotSimulation,
   limitDrainageToFloor,
-} from "./plotSimulation.js";
+} from './plotSimulation.js';
 import {
   calculateGrowth,
   getStageProfile,
   optimalStageValues,
   stageForProgress,
-} from "./riceGrowthModel.js";
+} from './riceGrowthModel.js';
 
 export type GrowthStage =
-  | "germination"
-  | "seedling"
-  | "tillering"
-  | "jointing"
-  | "heading"
-  | "filling"
-  | "maturity";
+  | 'germination'
+  | 'seedling'
+  | 'tillering'
+  | 'jointing'
+  | 'heading'
+  | 'filling'
+  | 'maturity';
 
 export interface PlotParams {
   waterLevelCm: number;
@@ -38,35 +38,33 @@ export interface PlotCellConfig {
   centerXZ: { x: number; z: number };
   widthM: number;
   depthM: number;
+  elevationM: number;
+  displayName?: string;
   plantCountTarget: number;
   plantModelKey: string;
   defaultParams: PlotParams;
 }
 
-interface RegionConfigBase {
+export type RegionKey = 'plain' | 'hill' | 'south' | 'mountain' | 'east';
+export type RegionTerrain = 'plain' | 'hill' | 'karst' | 'terrace' | 'valley';
+
+export interface RegionConfig {
   id: string;
+  key: RegionKey;
   name: string;
   rootName: string;
   originXZ: { x: number; z: number };
-  rows: 5;
-  columns: 5;
-  cellSizeM: 10;
-  leveeWidthM: 0.4;
-  totalWidthM: 52.4;
+  sceneCenterXZ: { x: number; z: number };
+  terrain: RegionTerrain;
+  rows: number;
+  columns: number;
+  cellSizeM: number;
+  leveeWidthM: number;
+  totalWidthM: number;
+  totalDepthM: number;
+  viewRadiusM: number;
   cells: PlotCellConfig[];
 }
-
-export interface PlainRegionConfig extends RegionConfigBase {
-  type: "plain";
-  mudElevationM: number;
-}
-
-export interface TerraceRegionConfig extends RegionConfigBase {
-  type: "terrace";
-  terraceLevelsByRow: readonly [number, number, number, number, number];
-}
-
-export type RegionConfig = PlainRegionConfig | TerraceRegionConfig;
 
 export interface IPlantFactory {
   createPlant(modelKey: string): Object3D;
@@ -78,103 +76,260 @@ export class PlaceholderPlantFactory implements IPlantFactory {
   }
 }
 
-const INITIAL_OPTIMAL = optimalStageValues("germination");
+const INITIAL_OPTIMAL = optimalStageValues('germination');
 export const DEFAULT_PLOT_PARAMS: Readonly<PlotParams> = Object.freeze({
   ...INITIAL_OPTIMAL,
-  growthStage: "germination",
+  growthStage: 'germination',
   healthPct: 100,
 });
 
+// Built-in regions use 5x5, but user-defined scenarios may need more rows.
+export const SCENARIO_GRID_MAX_INDEX = 50;
+
 export function makePlotId(regionId: string, row: number, column: number): string {
-  if (!Number.isInteger(row) || row < 1 || row > 5) {
-    throw new RangeError("Plot row must be an integer from 1 to 5");
+  if (!Number.isInteger(row) || row < 1 || row > SCENARIO_GRID_MAX_INDEX) {
+    throw new RangeError(`Plot row must be an integer from 1 to ${SCENARIO_GRID_MAX_INDEX}`);
   }
-  if (!Number.isInteger(column) || column < 1 || column > 5) {
-    throw new RangeError("Plot column must be an integer from 1 to 5");
+  if (!Number.isInteger(column) || column < 1 || column > SCENARIO_GRID_MAX_INDEX) {
+    throw new RangeError(`Plot column must be an integer from 1 to ${SCENARIO_GRID_MAX_INDEX}`);
   }
-  return `${regionId}-R${String(row).padStart(2, "0")}-C${String(column).padStart(2, "0")}`;
+  return `${regionId}-R${String(row).padStart(2, '0')}-C${String(column).padStart(2, '0')}`;
 }
 
-function createCells(regionId: string): PlotCellConfig[] {
-  const cells: PlotCellConfig[] = [];
-  // Net cells are 10 m wide; the 0.4 m levees add to the total footprint.
-  // Adjacent cell centers are 10.4 m apart, including the levee between them.
-  const centerOffset = (index: number) => (index - 2) * 10.4;
-
-  for (let row = 1; row <= 5; row += 1) {
-    for (let column = 1; column <= 5; column += 1) {
-      cells.push({
-        id: makePlotId(regionId, row, column),
-        row,
-        column,
-        centerXZ: { x: centerOffset(column - 1), z: centerOffset(row - 1) },
-        widthM: 10,
-        depthM: 10,
-        plantCountTarget: 150,
-        plantModelKey: "rice-programmatic-v1",
-        defaultParams: { ...DEFAULT_PLOT_PARAMS },
-      });
-    }
-  }
-
-  return cells;
+interface CellSeed {
+  row: number;
+  column: number;
+  x: number;
+  z: number;
+  widthM?: number;
+  depthM?: number;
+  elevationM?: number;
+  displayName?: string;
 }
 
-function createRegionBase(
-  id: string,
-  name: string,
-  rootName: string,
-  originXZ: { x: number; z: number }
-): RegionConfigBase {
+function createCell(regionId: string, seed: CellSeed): PlotCellConfig {
   return {
-    id,
-    name,
-    rootName,
-    originXZ,
-    rows: 5,
-    columns: 5,
-    cellSizeM: 10,
-    leveeWidthM: 0.4,
-    totalWidthM: 5 * 10 + 6 * 0.4,
-    cells: createCells(id),
+    id: makePlotId(regionId, seed.row, seed.column),
+    row: seed.row,
+    column: seed.column,
+    centerXZ: { x: seed.x, z: seed.z },
+    widthM: seed.widthM ?? 10,
+    depthM: seed.depthM ?? 10,
+    elevationM: seed.elevationM ?? 0,
+    displayName: seed.displayName,
+    plantCountTarget: 150,
+    plantModelKey: 'rice-programmatic-v1',
+    defaultParams: { ...DEFAULT_PLOT_PARAMS },
   };
 }
 
-export const PLAIN_REGION_CONFIG: PlainRegionConfig = {
-  ...createRegionBase("Plain", "平原水田", "RiceField_Plain", { x: 0, z: 0 }),
-  type: "plain",
-  mudElevationM: 0,
-};
+function finalizeRegion(
+  base: Omit<RegionConfig, 'sceneCenterXZ' | 'totalWidthM' | 'totalDepthM' | 'viewRadiusM'>,
+  viewRadiusM: number
+): RegionConfig {
+  const minX = Math.min(...base.cells.map((cell) => cell.centerXZ.x - cell.widthM / 2));
+  const maxX = Math.max(...base.cells.map((cell) => cell.centerXZ.x + cell.widthM / 2));
+  const minZ = Math.min(...base.cells.map((cell) => cell.centerXZ.z - cell.depthM / 2));
+  const maxZ = Math.max(...base.cells.map((cell) => cell.centerXZ.z + cell.depthM / 2));
+  return {
+    ...base,
+    sceneCenterXZ: { x: (minX + maxX) / 2, z: (minZ + maxZ) / 2 },
+    totalWidthM: maxX - minX + base.leveeWidthM * 2,
+    totalDepthM: maxZ - minZ + base.leveeWidthM * 2,
+    viewRadiusM,
+  };
+}
 
-export const TERRACE_REGION_CONFIG: TerraceRegionConfig = {
-  ...createRegionBase("Terrace", "梯田水田", "RiceField_Terrace", { x: 80, z: 0 }),
-  type: "terrace",
-  terraceLevelsByRow: [0, 0.75, 1.5, 2.25, 3],
-};
+const GRID_SPACING_M = 10.4;
+
+function plainCells(regionId: string): PlotCellConfig[] {
+  const cells: PlotCellConfig[] = [];
+  for (let row = 1; row <= 5; row += 1) {
+    for (let column = 1; column <= 5; column += 1) {
+      cells.push(createCell(regionId, {
+        row,
+        column,
+        x: (column - 3) * GRID_SPACING_M,
+        z: (row - 3) * GRID_SPACING_M,
+      }));
+    }
+  }
+  return cells;
+}
+
+function hillCells(regionId: string): PlotCellConfig[] {
+  const cells: PlotCellConfig[] = [];
+  const elevations = [0, 0.55, 1.1];
+  for (let row = 1; row <= 3; row += 1) {
+    for (let column = 1; column <= 5; column += 1) {
+      cells.push(createCell(regionId, {
+        row,
+        column,
+        x: (column - 3) * 10.7 + (row - 2) * 0.45,
+        z: (row - 2) * 11.4,
+        widthM: 9.8,
+        depthM: 10.2,
+        elevationM: elevations[row - 1],
+      }));
+    }
+  }
+  return cells;
+}
+
+function karstCells(regionId: string): PlotCellConfig[] {
+  const rows = [
+    { row: 1, z: -11.3, xs: [-14.2, 0, 14.2], widths: [11, 10, 9.2] },
+    { row: 2, z: 0, xs: [-18.1, -6.1, 6.1, 18.1], widths: [8.8, 8.8, 8.8, 8.8] },
+    { row: 3, z: 11.3, xs: [-14.2, 0, 14.2], widths: [9.2, 10, 11] },
+  ];
+  const cells: PlotCellConfig[] = [];
+  for (const rowConfig of rows) {
+    rowConfig.xs.forEach((x, index) => {
+      cells.push(createCell(regionId, {
+        row: rowConfig.row,
+        column: index + 1,
+        x,
+        z: rowConfig.z,
+        widthM: rowConfig.widths[index],
+        depthM: 8.8,
+        elevationM: (rowConfig.row - 2) * 0.22,
+      }));
+    });
+  }
+  return cells;
+}
+
+function mountainCells(regionId: string): PlotCellConfig[] {
+  return [
+    createCell(regionId, {
+      row: 1,
+      column: 1,
+      x: 0,
+      z: 0,
+      widthM: 16,
+      depthM: 11,
+      displayName: '主梯田',
+    }),
+  ];
+}
+
+function valleyCells(regionId: string): PlotCellConfig[] {
+  const cells: PlotCellConfig[] = [];
+  for (let row = 1; row <= 2; row += 1) {
+    for (let column = 1; column <= 4; column += 1) {
+      cells.push(createCell(regionId, {
+        row,
+        column,
+        x: (column - 2.5) * 11.2,
+        z: row === 1 ? -6.2 : 6.2,
+        widthM: 10.4,
+        depthM: 10.2,
+        elevationM: row === 1 ? 0.45 : 0,
+      }));
+    }
+  }
+  return cells;
+}
+
+export const PLAIN_REGION_CONFIG = finalizeRegion({
+  id: 'Plain',
+  key: 'plain',
+  name: '洞庭湖平原水田',
+  rootName: 'RiceField_Plain',
+  originXZ: { x: 40, z: 0 },
+  terrain: 'plain',
+  rows: 5,
+  columns: 5,
+  cellSizeM: 10,
+  leveeWidthM: 0.4,
+  cells: plainCells('Plain'),
+}, 34);
+
+export const HILL_REGION_CONFIG = finalizeRegion({
+  id: 'Hill',
+  key: 'hill',
+  name: '湘中丘陵水田',
+  rootName: 'RiceField_Hill',
+  originXZ: { x: 40, z: 0 },
+  terrain: 'hill',
+  rows: 3,
+  columns: 5,
+  cellSizeM: 10,
+  leveeWidthM: 0.4,
+  cells: hillCells('Hill'),
+}, 31);
+
+export const SOUTH_REGION_CONFIG = finalizeRegion({
+  id: 'Karst',
+  key: 'south',
+  name: '湘南喀斯特盆地水田',
+  rootName: 'RiceField_Karst',
+  originXZ: { x: 40, z: 0 },
+  terrain: 'karst',
+  rows: 3,
+  columns: 4,
+  cellSizeM: 10,
+  leveeWidthM: 0.4,
+  cells: karstCells('Karst'),
+}, 32);
+
+export const MOUNTAIN_REGION_CONFIG = finalizeRegion({
+  id: 'Mountain',
+  key: 'mountain',
+  name: '湘西山地梯田',
+  rootName: 'RiceField_Mountain',
+  originXZ: { x: 40, z: 0 },
+  terrain: 'terrace',
+  rows: 1,
+  columns: 1,
+  cellSizeM: 10,
+  leveeWidthM: 0.4,
+  cells: mountainCells('Mountain'),
+}, 18);
+
+export const EAST_REGION_CONFIG = finalizeRegion({
+  id: 'Valley',
+  key: 'east',
+  name: '湘东河谷过渡田',
+  rootName: 'RiceField_Valley',
+  originXZ: { x: 40, z: 0 },
+  terrain: 'valley',
+  rows: 2,
+  columns: 4,
+  cellSizeM: 10,
+  leveeWidthM: 0.4,
+  cells: valleyCells('Valley'),
+}, 28);
+
+// Compatibility alias for callers that still request the legacy terrace scene.
+export const TERRACE_REGION_CONFIG = MOUNTAIN_REGION_CONFIG;
 
 export const REGION_CONFIGS: readonly RegionConfig[] = [
   PLAIN_REGION_CONFIG,
-  TERRACE_REGION_CONFIG,
+  HILL_REGION_CONFIG,
+  SOUTH_REGION_CONFIG,
+  MOUNTAIN_REGION_CONFIG,
+  EAST_REGION_CONFIG,
 ];
+
+export const REGION_CONFIG_BY_KEY: Readonly<Record<RegionKey, RegionConfig>> = Object.freeze({
+  plain: PLAIN_REGION_CONFIG,
+  hill: HILL_REGION_CONFIG,
+  south: SOUTH_REGION_CONFIG,
+  mountain: MOUNTAIN_REGION_CONFIG,
+  east: EAST_REGION_CONFIG,
+});
 
 export class PlotState {
   readonly id: string;
   params: PlotParams;
-  /** P1: 生理进度 0~100，用于决定水稻形态与所处阶段 */
   physiologicalProgress = 0;
-  /** P1: 模拟天数，初始为 Day 1 */
   simulatedDay = 1;
-  /** P1: 当前生长阶段（由生理进度决定，受环境胁迫会滞后） */
-  currentStage: GrowthStage | "germination" = "germination";
-  /** P1: 当前生长速率百分比（100% = 环境完全适宜） */
+  currentStage: GrowthStage | 'germination' = 'germination';
   growthRatePct = 100;
-  /** P1: 生长是否严重受阻 */
   stressed = false;
-  /** P1: 生长是否完全停滞 */
   growthStalled = false;
-  /** P1+: 生长受阻的主要原因（低温/缺水/寡照…），适宜时为 null */
   stressReason: string | null = null;
-  /** P1+: 受阻详情，供 UI 生成农学告警文案 */
   stressDetail: {
     key: string;
     value: number;
@@ -191,9 +346,7 @@ export class PlotState {
   update(
     dt: number,
     environment: {
-      /** 旧字段，向后兼容 */
       weather?: string;
-      /** 新字段：来自 weatherState.js 的 WeatherSnapshot */
       weatherSnapshot?: {
         key: string;
         temperature: number;
@@ -218,8 +371,6 @@ export class PlotState {
       };
     }
   ): void {
-    // P16: 排水边界 —— 排到当前阶段安全区间下限就自动停止
-    // （发芽 1cm / 分蘖 3cm / 成熟 0cm），不会把田排干后反而触发「水位过低」
     const waterFloorCm = getStageProfile(this.currentStage).ideal.waterLevelCm[0];
     const limitedEffects = limitDrainageToFloor(
       environment.componentEffects,
@@ -233,11 +384,9 @@ export class PlotState {
       params: { ...this.params },
       componentEffects: limitedEffects,
     });
-    // 环境参数每秒都会变化，必须同步刷新受阻状态，否则结算报告会读取旧状态。
     this.refreshGrowthStatus();
   }
 
-  /** 自定义天气应用后立即同步环境，避免生长状态等待物理插值。 */
   syncEnvironmentSnapshot(snapshot: {
     temperature?: number;
     humidity?: number;
@@ -281,7 +430,6 @@ export class PlotState {
     };
   }
 
-  /** P3: 时间轴驱动 —— 按天数推进生长（受环境胁迫影响） */
   advanceGrowth(dtDays: number): void {
     if (!(dtDays > 0)) return;
     const growth = calculateGrowth(
@@ -295,13 +443,11 @@ export class PlotState {
     this.applyGrowth(growth);
   }
 
-  /** P3: 时间轴拖拽回溯 —— 直接把生理进度跳到指定值 */
   seekGrowth(progress: number, simulatedDay: number): void {
     const nextProgress = Math.min(100, Math.max(0, progress));
     this.physiologicalProgress = nextProgress;
     this.simulatedDay = simulatedDay;
     this.currentStage = stageForProgress(nextProgress);
-    // 仍按当前环境刷新速率/受阻原因，但不推进进度
     this.refreshGrowthStatus();
   }
 

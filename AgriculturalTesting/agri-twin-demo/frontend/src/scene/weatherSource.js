@@ -32,6 +32,9 @@ const IS_DEV = Boolean(import.meta.env?.DEV);
 const OPEN_METEO_BASE_URL = IS_DEV
   ? "/api/open-meteo/forecast"
   : "https://api.open-meteo.com/v1/forecast";
+const AIR_QUALITY_BASE_URL = IS_DEV
+  ? '/api/air-quality/v1/air-quality'
+  : 'https://air-quality-api.open-meteo.com/v1/air-quality';
 
 // wttr.in 支持 CORS(*)，前后端都可直连，无需代理
 const WTTR_BASE_URL = "https://wttr.in";
@@ -104,11 +107,19 @@ function normalizeWttr(data) {
   const current = {
     time: localNowIso(),
     temperature_2m: Number(condition.temp_C),
+    apparent_temperature: Number(condition.FeelsLikeC),
     relative_humidity_2m: Number(condition.humidity),
     wind_speed_10m: Number(condition.windspeedKmph),   // 与 Open-Meteo 同为 km/h
+    wind_gusts_10m: Number(condition.WindGustKmph),
+    wind_direction_10m: Number(condition.winddirDegree),
     precipitation: Number.isFinite(precipitation) ? precipitation : 0,
     cloudcover: Number.isFinite(cloudcover) ? cloudcover : 50,
     weather_code: wwToWmo(condition.weatherCode, precipitation, cloudcover),
+    pressure_msl: Number(condition.pressure),
+    visibility: Number(condition.visibility) * 1000,
+    uv_index: Number(condition.uvIndex),
+    dew_point_2m: Number(condition.DewPointC),
+    weather_desc: condition.weatherDesc?.[0]?.value || condition.lang_zh?.[0]?.value || '',
   };
 
   const days = Array.isArray(data?.weather) ? data.weather : [];
@@ -122,14 +133,36 @@ function normalizeWttr(data) {
       const noon = d.hourly?.[4] || d.hourly?.[0] || {};
       return wwToWmo(noon.weatherCode, noon.precipMM, noon.cloudcover);
     }),
+    precipitation_probability_max: days.map((d) => Math.max(...(d.hourly || []).map((slot) => Number(slot.chanceofrain) || 0), 0)),
+    uv_index_max: days.map((d) => Math.max(...(d.hourly || []).map((slot) => Number(slot.uvIndex) || 0), 0)),
+    sunrise: days.map((d) => d.astronomy?.[0]?.sunrise || ''),
+    sunset: days.map((d) => d.astronomy?.[0]?.sunset || ''),
+    wind_speed_10m_max: days.map((d) => Math.max(...(d.hourly || []).map((slot) => Number(slot.windspeedKmph) || 0), 0)),
+    wind_direction_10m_dominant: days.map((d) => Number((d.hourly?.[4] || d.hourly?.[0] || {}).winddirDegree) || 0),
   };
 
-  const hourly = { time: [], temperature_2m: [], weather_code: [] };
+  const hourly = {
+    time: [],
+    temperature_2m: [],
+    apparent_temperature: [],
+    weather_code: [],
+    precipitation_probability: [],
+    relative_humidity_2m: [],
+    wind_speed_10m: [],
+    wind_direction_10m: [],
+    uv_index: [],
+  };
   for (const day of days) {
     for (const slot of day.hourly || []) {
       hourly.time.push(`${day.date}T${hhmm(slot.time)}`);
       hourly.temperature_2m.push(Number(slot.tempC));
+      hourly.apparent_temperature.push(Number(slot.FeelsLikeC));
       hourly.weather_code.push(wwToWmo(slot.weatherCode, slot.precipMM, slot.cloudcover));
+      hourly.precipitation_probability.push(Number(slot.chanceofrain) || 0);
+      hourly.relative_humidity_2m.push(Number(slot.humidity));
+      hourly.wind_speed_10m.push(Number(slot.windspeedKmph));
+      hourly.wind_direction_10m.push(Number(slot.winddirDegree));
+      hourly.uv_index.push(Number(slot.uvIndex));
     }
   }
 
@@ -137,9 +170,9 @@ function normalizeWttr(data) {
 }
 
 /** 带超时的 fetch + JSON 解析 */
-async function fetchJson(url, errorLabel) {
+async function fetchJson(url, errorLabel, timeoutMs = REQUEST_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) throw new Error(`${errorLabel} HTTP ${res.status}`);
@@ -163,31 +196,66 @@ async function fetchFromOpenMeteo(lat, lon) {
     longitude: String(lon),
     // 注意：time 字段是 Open-Meteo 自动返回的索引数组，不能作为请求字段，传了会 400
     current: [
-      "temperature_2m",
-      "relative_humidity_2m",
-      "wind_speed_10m",
-      "precipitation",
-      "weather_code",
-      "cloudcover",
+      'temperature_2m',
+      'apparent_temperature',
+      'relative_humidity_2m',
+      'wind_speed_10m',
+      'wind_gusts_10m',
+      'wind_direction_10m',
+      'precipitation',
+      'precipitation_probability',
+      'weather_code',
+      'cloud_cover',
+      'pressure_msl',
+      'visibility',
+      'uv_index',
+      'dew_point_2m',
     ].join(","),
     daily: [
-      "temperature_2m_min",
-      "temperature_2m_max",
-      "weather_code",
+      'temperature_2m_min',
+      'temperature_2m_max',
+      'apparent_temperature_min',
+      'apparent_temperature_max',
+      'weather_code',
+      'precipitation_probability_max',
+      'uv_index_max',
+      'sunrise',
+      'sunset',
+      'wind_speed_10m_max',
+      'wind_direction_10m_dominant',
     ].join(","),
     hourly: [
-      "temperature_2m",
-      "weather_code",
+      'temperature_2m',
+      'apparent_temperature',
+      'weather_code',
+      'precipitation_probability',
+      'relative_humidity_2m',
+      'wind_speed_10m',
+      'wind_direction_10m',
+      'uv_index',
     ].join(","),
-    forecast_days: "3",   // daily/hourly 必须显式指定天数，否则 400
+    forecast_days: '7',
     timezone: "auto",
   });
   const data = await fetchJson(`${OPEN_METEO_BASE_URL}?${params.toString()}`, "Open-Meteo");
+  if (data.current && data.current.cloudcover == null) {
+    data.current.cloudcover = data.current.cloud_cover;
+  }
   return {
     current: data.current || {},
     daily: data.daily || {},
     hourly: data.hourly || {},
   };
+}
+
+async function fetchAirQuality(lat, lon) {
+  const params = new URLSearchParams({
+    latitude: String(lat),
+    longitude: String(lon),
+    current: ['european_aqi', 'us_aqi', 'pm2_5', 'pm10'].join(','),
+    timezone: 'auto',
+  });
+  return fetchJson(`${AIR_QUALITY_BASE_URL}?${params.toString()}`, 'Open-Meteo Air Quality', 3000);
 }
 
 /**
@@ -212,6 +280,11 @@ export async function fetchActualWeatherSnapshot(options = {}) {
       // 必要字段缺失 → 视为该源失败，继续降级
       if (!Number.isFinite(Number(current?.temperature_2m))) {
         throw new Error(`${source.name} 响应缺少必要字段 temperature_2m`);
+      }
+      try {
+        raw.airQuality = await fetchAirQuality(lat, lon);
+      } catch (airError) {
+        raw.airQuality = null;
       }
       return {
         snapshot: buildSnapshotFromActual(current),

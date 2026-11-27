@@ -102,12 +102,6 @@ function droopAt(progress) {
 
 // WIND_SPEED_BY_WEATHER 已迁移到 weatherState.js 的 computeWindStrength(snapshot)
 
-function mudElevationForRow(region, row) {
-  return region.type === "terrace"
-    ? region.terraceLevelsByRow[row - 1]
-    : region.mudElevationM;
-}
-
 function addAttributeRange(attribute, start, count, itemSize) {
   attribute.addUpdateRange(start * itemSize, count * itemSize);
   attribute.needsUpdate = true;
@@ -172,6 +166,19 @@ function createIdentityMatrix() {
   return matrix;
 }
 
+export function getRiceDetailProfile(plotCount) {
+  const count = Math.max(1, Number(plotCount) || 1);
+  const detailFactor = THREE.MathUtils.clamp(1 + (25 - count) / 24 * 0.36, 1, 1.36);
+  return {
+    detailFactor,
+    nearCount: Math.min(PLANTS_PER_PLOT, Math.round(VISIBLE_PLANT_COUNT * detailFactor)),
+    farCount: Math.min(PLANTS_PER_PLOT, Math.round(48 * detailFactor)),
+    midCount: Math.min(PLANTS_PER_PLOT, Math.round(68 * detailFactor)),
+    farDistance: count <= 8 ? 235 : count <= 15 ? 205 : 180,
+    midDistance: count <= 8 ? 170 : 145,
+  };
+}
+
 export function createRiceInstanceBatches(
   plotStates = {},
   regions = REGION_CONFIGS,
@@ -196,11 +203,15 @@ export function createRiceInstanceBatches(
     uWindSpeed: { value: 0.1 },
   };
   // P4 性能：随镜头距离动态调整每地块渲染株数（LOD）
-  let lodVisibleCount = VISIBLE_PLANT_COUNT;
-  const LOD_FAR_DISTANCE = 170;   // 远景：60 株
-  const LOD_MID_DISTANCE = 120;   // 中景：80 株
-  const LOD_FAR_COUNT = 48;
-  const LOD_MID_COUNT = 68;
+  const plotCount = regions.reduce((total, region) => total + region.cells.length, 0);
+  const {
+    nearCount: LOD_NEAR_COUNT,
+    farCount: LOD_FAR_COUNT,
+    midCount: LOD_MID_COUNT,
+    farDistance: LOD_FAR_DISTANCE,
+    midDistance: LOD_MID_DISTANCE,
+  } = getRiceDetailProfile(plotCount);
+  let lodVisibleCount = LOD_NEAR_COUNT;
   const batches = new Map(
     prototypeMeshes.map((mesh) => [
       mesh.userData.batchPartKey,
@@ -406,7 +417,7 @@ export function createRiceInstanceBatches(
         range,
         worldX: region.originXZ.x + cell.centerXZ.x,
         worldZ: region.originXZ.z + cell.centerXZ.z,
-        mudY: mudElevationForRow(region, cell.row),
+        mudY: cell.elevationM ?? 0,
         progress: null,
         growthProgress: null,
         colorProgress: null,
@@ -466,7 +477,7 @@ export function createRiceInstanceBatches(
       ? LOD_FAR_COUNT
       : cameraDistance > LOD_MID_DISTANCE
         ? LOD_MID_COUNT
-        : VISIBLE_PLANT_COUNT;
+        : LOD_NEAR_COUNT;
     if (nextLod !== lodVisibleCount) {
       lodVisibleCount = nextLod;
       plots.forEach((plot) => {

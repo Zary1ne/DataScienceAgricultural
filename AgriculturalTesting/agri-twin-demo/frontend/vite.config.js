@@ -15,6 +15,12 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api\/open-meteo/, "/v1"),
         secure: true,
       },
+      "/api/air-quality": {
+        target: "https://air-quality-api.open-meteo.com",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/air-quality/, ""),
+        secure: true,
+      },
     },
   },
 });

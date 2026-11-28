@@ -7,6 +7,7 @@
         <span class="title-text">AgriTwin · 数字孪生农场实时监控</span>
         <span class="live-badge">LIVE</span>
         <span class="region-badge">{{ selectedRegion.short }} · {{ terrainLabel }}</span>
+        <button class="map-return-btn" type="button" @click="openRegionMap">湖南省地图</button>
       </div>
       <div class="studio-clock num">{{ now }}</div>
     </header>
@@ -26,35 +27,12 @@
             <div v-for="(group, index) in activeScenarioGroups" :key="group.id" class="scenario-group-mini">
               <span>第{{ index + 1 }}组</span>
               <strong>{{ terrainOptions.find((terrain) => terrain.key === group.terrainKey)?.short || group.terrainKey }}</strong>
-              <small>{{ group.plotCount }} 块 · {{ group.areaMu }} 亩/块</small>
+              <small>{{ group.plotCount }} 块 · {{ group.areaMu }} 亩/格</small>
             </div>
             <div v-if="!activeScenarioGroups.length" class="scenario-group-empty">尚未生成田块</div>
           </div>
           <button class="scenario-edit-btn" type="button" @click="openScenarioSetup">重新规划场景</button>
 
-          <!-- P3 布局重构：地形/气候/土壤/风险 → 折叠面板 -->
-          <button class="accordion-toggle" type="button" @click="regionAccordionOpen = !regionAccordionOpen">
-            <span class="accordion-toggle-label">产区详情</span>
-            <span class="accordion-toggle-arrow" :class="{ open: regionAccordionOpen }">›</span>
-          </button>
-          <Transition name="accordion">
-            <div v-if="regionAccordionOpen" class="region-summary">
-              <div class="region-summary-name">{{ selectedRegion.name }}</div>
-              <p class="region-description">{{ selectedRegion.description }}</p>
-              <div class="terrain-summary">
-                <span>地形特征</span>
-                <strong>{{ selectedRegion.terrain }}</strong>
-              </div>
-              <ul>
-                <li><span>气候</span><strong>{{ selectedRegion.climate }}</strong></li>
-                <li><span>土壤</span><strong>{{ selectedRegion.soil }}</strong></li>
-                <li><span>风险</span><strong>{{ selectedRegion.risk }}</strong></li>
-              </ul>
-              <div class="plot-structure-mini">
-                <span>{{ PLOT_STRUCTURE.modelCount }} 块田 · {{ PLOT_STRUCTURE.layoutLabel }} · 场地 {{ PLOT_STRUCTURE.totalSizeM }}</span>
-              </div>
-            </div>
-          </Transition>
         </div>
 
         <div class="weather-summary-head">
@@ -99,13 +77,13 @@
           <div class="sp-head">
             <span>土壤剖面</span>
             <span class="sp-hint" v-if="isSoilWetting">💧 水分下渗中…</span>
-            <span class="sp-depth-total num">0-{{ soilProfile.totalDepth }}cm</span>
+            <span class="sp-depth-total num">0-{{ soilProfile.totalDepthM.toFixed(2) }}m</span>
           </div>
           <div class="sp-body">
             <div class="sp-stack" :class="{ 'is-wetting': isSoilWetting }">
               <div
                 v-for="l in soilProfile.layers"
-                :key="l.name"
+                :key="l.key"
                 class="sp-layer"
                 :class="{ 'is-wet': isSoilWetting }"
                 :style="{ background: l.color, flex: l.to - l.from }"
@@ -117,14 +95,14 @@
               </div>
             </div>
             <div class="sp-list">
-              <div v-for="l in soilProfile.layers" :key="l.name" class="sp-item">
+              <div v-for="l in soilProfile.layers" :key="l.key" class="sp-item">
                 <div class="sp-name-row">
                   <i class="sp-swatch" :style="{ background: l.color }"></i>
                   <span class="sp-name">{{ l.name }}</span>
-                  <span class="sp-range num">{{ l.from }}-{{ l.to }}cm</span>
+                  <span class="sp-range num">{{ l.from.toFixed(2) }}-{{ l.to.toFixed(2) }}m</span>
                 </div>
                 <div class="sp-vals num">
-                  {{ l.texture }} · 含水率 <TransitionNum :value="l.moisture" :decimals="0" class="num-inline" />% · <TransitionNum :value="l.temp" :decimals="0" class="num-inline" />°C · pH <TransitionNum :value="l.ph" :decimals="1" class="num-inline" />
+                  {{ l.texture }} · 含水率 <TransitionNum :value="l.moisture" :decimals="0" class="num-inline" />% · <TransitionNum :value="l.temperatureC" :decimals="0" class="num-inline" />°C · pH <TransitionNum :value="l.ph" :decimals="1" class="num-inline" />
                 </div>
               </div>
             </div>
@@ -142,9 +120,12 @@
           :component-manager="scenarioSetupOpen ? null : componentManager"
           :region-configs="activeRegionConfigs"
           :preview-mode="scenarioSetupOpen"
+          :soil-profile-mode="true"
+          :soil-profile-key="selectedRegion.key"
           :harvest-amount="harvestAmount"
           @select="onSelect"
           @component-select="onComponentSelect"
+          @soil-select="onSoilSelect"
           @ground-click="onGroundClick"
           @view-change="sceneView = $event"
         />
@@ -218,13 +199,61 @@
           :progress="selectedPlotProgress"
           :warning-count="selectedPlotWarnings.length"
         />
+        <section v-if="selectedPlotLayoutContext" class="plot-layout-panel">
+          <div class="plot-section-heading">
+            <span>田块轮廓</span>
+            <span class="plot-layout-span num">
+              {{ selectedPlotLayoutContext.span.rows }} × {{ selectedPlotLayoutContext.span.columns }} 格
+            </span>
+          </div>
+          <div class="plot-expand-pad" role="group" aria-label="调整田块轮廓">
+            <button
+              class="plot-expand-btn is-up"
+              type="button"
+              title="向上占用相邻格"
+              aria-label="向上占用相邻格"
+              :disabled="!selectedPlotLayoutContext.available.up"
+              @click="expandSelectedPlot('up')"
+            >↑</button>
+            <button
+              class="plot-expand-btn is-left"
+              type="button"
+              title="向左占用相邻格"
+              aria-label="向左占用相邻格"
+              :disabled="!selectedPlotLayoutContext.available.left"
+              @click="expandSelectedPlot('left')"
+            >←</button>
+            <span class="plot-expand-core" aria-hidden="true"></span>
+            <button
+              class="plot-expand-btn is-right"
+              type="button"
+              title="向右占用相邻格"
+              aria-label="向右占用相邻格"
+              :disabled="!selectedPlotLayoutContext.available.right"
+              @click="expandSelectedPlot('right')"
+            >→</button>
+            <button
+              class="plot-expand-btn is-down"
+              type="button"
+              title="向下占用相邻格"
+              aria-label="向下占用相邻格"
+              :disabled="!selectedPlotLayoutContext.available.down"
+              @click="expandSelectedPlot('down')"
+            >↓</button>
+          </div>
+          <div class="plot-layout-actions">
+            <button type="button" :disabled="!layoutUndoStack.length" @click="undoPlotLayout">撤销</button>
+            <button type="button" :disabled="!layoutRedoStack.length" @click="redoPlotLayout">重做</button>
+            <button type="button" @click="restoreSelectedPlotLayout">复原</button>
+          </div>
+        </section>
         <template v-if="selectedObj">
           <div class="selected-object-status">
             <span
               class="soil-dot"
               :class="'status-dot-' + (selectedObj.type === 'component' ? (selectedComponent?.enabled ? 'normal' : 'warning') : selectedObj.status)"
             ></span>
-            <span>{{ selectedObj.type === "plot" ? "水田子区域" : selectedObj.type === "component" ? "已挂载组件" : selectedObj.type === "field" ? "水稻田块" : "场景设备" }}</span>
+            <span>{{ selectedObj.type === "plot" ? "水田子区域" : selectedObj.type === "component" ? "已挂载组件" : selectedObj.type === "field" ? "水稻田块" : selectedObj.type === "soil" ? "土壤剖面层" : "场景设备" }}</span>
             <span
               class="tag"
               :class="statusClass(selectedObj.type === 'component' ? (selectedComponent?.enabled ? 'normal' : 'warning') : selectedObj.status)"
@@ -233,6 +262,37 @@
             </span>
           </div>
           <p class="obj-desc">{{ selectedObj.desc }}</p>
+          <section v-if="selectedObj.type === 'soil' && selectedObj.soilLayer" class="soil-layer-inspector">
+            <div class="soil-layer-inspector-head">
+              <span class="soil-layer-swatch" :style="{ background: selectedObj.soilLayer.color }"></span>
+              <div>
+                <strong>{{ selectedObj.soilLayer.horizon }}</strong>
+                <span>{{ selectedObj.soilLayer.regionName }} · {{ selectedObj.soilLayer.depthLabel }}</span>
+              </div>
+            </div>
+            <dl class="soil-layer-properties">
+              <div>
+                <dt>土壤类型</dt>
+                <dd>{{ selectedObj.soilLayer.texture }}</dd>
+              </div>
+              <div>
+                <dt>含水率</dt>
+                <dd class="num">{{ selectedObj.soilLayer.moisture.toFixed(1) }}%</dd>
+              </div>
+              <div>
+                <dt>pH</dt>
+                <dd class="num">{{ selectedObj.soilLayer.ph.toFixed(1) }}</dd>
+              </div>
+              <div>
+                <dt>土温</dt>
+                <dd class="num">{{ selectedObj.soilLayer.temperatureC.toFixed(1) }}°C</dd>
+              </div>
+              <div>
+                <dt>层厚</dt>
+                <dd class="num">{{ selectedObj.soilLayer.thicknessLabel }}</dd>
+              </div>
+            </dl>
+          </section>
           <section v-if="selectedObj.type === 'component' && selectedComponent" class="component-detail component-inspector-card">
             <!-- 头部：大图标 + 名称 + 位置 -->
             <div class="cic-head">
@@ -966,72 +1026,115 @@
 
     <Transition name="scenario-fade">
       <div v-if="scenarioSetupOpen" class="scenario-setup-backdrop">
-        <section class="scenario-setup-panel" role="dialog" aria-label="场景规划">
+        <section class="scenario-setup-panel" role="dialog" aria-label="重新规划场景">
           <header class="scenario-setup-head">
-            <div>
-              <span class="eyebrow">SCENE PLANNER</span>
-              <h2>场景规划</h2>
-              <p>选择地形、地块数量与单块面积，右侧场景会实时预览。</p>
+            <div class="scenario-heading-copy">
+              <span class="eyebrow">SCENE LAYOUT</span>
+              <h2>重新规划场景</h2>
+              <p>{{ scenarioDraft.length }} 组田块 · {{ scenarioTotalPlots }} 块已配置</p>
             </div>
-            <div class="scenario-total">
-              <strong>{{ scenarioTotalPlots }}</strong>
-              <span>/ {{ SCENARIO_LIMITS.maxTotalPlots }} 块</span>
+            <div class="scenario-total" aria-label="田块总数">
+              <span class="scenario-total-label">田块总数</span>
+              <div class="scenario-total-value">
+                <strong>{{ scenarioTotalPlots }}</strong>
+                <span>/ {{ SCENARIO_LIMITS.maxTotalPlots }}</span>
+              </div>
+              <span class="scenario-total-track">
+                <i :style="{ width: Math.min(100, scenarioTotalPlots / SCENARIO_LIMITS.maxTotalPlots * 100) + '%' }"></i>
+              </span>
             </div>
           </header>
 
-          <div class="scenario-editor-list">
+          <div class="scenario-editor-list" :class="{ 'is-multi': scenarioDraft.length > 1 }">
             <article v-for="(group, index) in scenarioDraft" :key="group.id" class="scenario-editor-card">
               <div class="scenario-editor-title">
-                <strong>第 {{ index + 1 }} 组田块</strong>
-                <span>最多 {{ SCENARIO_LIMITS.maxPlotsPerGroup }} 块</span>
-                <button v-if="scenarioDraft.length > 1" type="button" class="scenario-remove" @click="removeScenarioGroup(index)">移除</button>
-              </div>
-
-              <div class="terrain-choice-grid">
-                <button
-                  v-for="terrain in terrainOptions"
-                  :key="terrain.key"
-                  type="button"
-                  class="terrain-choice"
-                  :class="{ active: group.terrainKey === terrain.key }"
-                  @click="group.terrainKey = terrain.key"
-                >
-                  <strong>{{ terrain.short }}</strong>
-                  <span>{{ terrain.terrain }}</span>
-                </button>
-              </div>
-
-              <div class="scenario-field-row">
-                <label>田块数量</label>
-                <input
-                  type="range"
-                  min="0"
-                  :max="scenarioGroupMaxCount(index)"
-                  step="1"
-                  v-model.number="group.plotCount"
-                  @input="clampScenarioGroup(index)"
-                />
-                <input
-                  class="scenario-count-input num"
-                  type="number"
-                  min="0"
-                  :max="scenarioGroupMaxCount(index)"
-                  v-model.number="group.plotCount"
-                  @input="clampScenarioGroup(index)"
-                />
-              </div>
-
-              <div class="scenario-area-row">
-                <span>单块面积</span>
-                <div class="scenario-segmented">
-                  <button
-                    v-for="area in SCENARIO_LIMITS.allowedAreasMu"
-                    :key="area"
-                    type="button"
-                    :class="{ active: group.areaMu === area }"
-                    @click="group.areaMu = area"
-                  >{{ area }} 亩</button>
+                <span class="scenario-group-index num">{{ String(index + 1).padStart(2, '0') }}</span>
+                <div class="scenario-group-copy">
+                  <strong>田块组 {{ index + 1 }}</strong>
+                  <span>
+                    {{ terrainOptions.find((terrain) => terrain.key === group.terrainKey)?.short || group.terrainKey }}
+                    · {{ group.plotCount }} 块 · {{ group.areaMu }} 亩/块
+                  </span>
                 </div>
+                <button
+                  v-if="scenarioDraft.length > 1"
+                  type="button"
+                  class="scenario-remove"
+                  aria-label="移除这组田块"
+                  title="移除这组田块"
+                  @click="removeScenarioGroup(index)"
+                >×</button>
+              </div>
+
+              <section class="scenario-config-section">
+                <div class="scenario-section-title">
+                  <span>地形类型</span>
+                  <small>{{ SCENARIO_LIMITS.maxPlotsPerGroup }} 块上限</small>
+                </div>
+                <div class="terrain-choice-grid">
+                  <button
+                    v-for="terrain in terrainOptions"
+                    :key="terrain.key"
+                    type="button"
+                    class="terrain-choice"
+                    :class="{ active: group.terrainKey === terrain.key }"
+                    :aria-pressed="group.terrainKey === terrain.key"
+                    @click="group.terrainKey = terrain.key"
+                  >
+                    <span class="terrain-choice-mark">{{ terrain.code }}</span>
+                    <span class="terrain-choice-copy">
+                      <strong>{{ terrain.short }}</strong>
+                      <small>{{ terrain.terrain }}</small>
+                    </span>
+                  </button>
+                </div>
+              </section>
+
+              <div class="scenario-control-grid">
+                <section class="scenario-control-block">
+                  <div class="scenario-control-head">
+                    <label :for="`plot-count-${group.id}`">田块数量</label>
+                    <input
+                      :id="`plot-count-${group.id}`"
+                      class="scenario-count-input num"
+                      type="number"
+                      min="0"
+                      :max="scenarioGroupMaxCount(index)"
+                      v-model.number="group.plotCount"
+                      @input="clampScenarioGroup(index)"
+                    />
+                  </div>
+                  <input
+                    class="scenario-range"
+                    type="range"
+                    min="0"
+                    :max="scenarioGroupMaxCount(index)"
+                    step="1"
+                    v-model.number="group.plotCount"
+                    @input="clampScenarioGroup(index)"
+                  />
+                  <div class="scenario-range-scale num">
+                    <span>0</span>
+                    <span>{{ scenarioGroupMaxCount(index) }}</span>
+                  </div>
+                </section>
+
+                <section class="scenario-control-block">
+                  <div class="scenario-control-head">
+                    <span>单块面积</span>
+                    <strong class="num">{{ group.areaMu }} 亩</strong>
+                  </div>
+                  <div class="scenario-segmented" role="group" aria-label="单块面积">
+                    <button
+                      v-for="area in SCENARIO_LIMITS.allowedAreasMu"
+                      :key="area"
+                      type="button"
+                      :class="{ active: group.areaMu === area }"
+                      :aria-pressed="group.areaMu === area"
+                      @click="group.areaMu = area"
+                    >{{ area }} 亩</button>
+                  </div>
+                </section>
               </div>
             </article>
           </div>
@@ -1041,21 +1144,37 @@
             type="button"
             class="scenario-add-group"
             @click="addScenarioGroup"
-          >添加第二组田块</button>
+          >
+            <span aria-hidden="true">+</span>
+            添加第二组田块
+          </button>
 
           <footer class="scenario-setup-actions">
+            <span class="scenario-footer-summary">
+              {{ scenarioDraft.length }} 组 · 共 {{ scenarioTotalPlots }} 块田
+            </span>
             <button v-if="scenarioConfirmed" type="button" class="scenario-cancel" @click="cancelScenarioSetup">取消</button>
             <button type="button" class="scenario-apply" :disabled="!scenarioCanApply" @click="applyScenarioSetup">生成场景</button>
           </footer>
         </section>
       </div>
     </Transition>
+
+    <HunanRegionMap
+      v-if="mapEntryOpen"
+      :regions="regionCatalog"
+      :selected-key="mapSelectedRegionKey"
+      @select="selectMapRegion"
+      @enter="enterMappedRegion"
+      @exit="$router.push('/twin')"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from "vue";
 import TwinScene from "../components/TwinScene.vue";
+import HunanRegionMap from "../components/HunanRegionMap.vue";
 import GrowthTimeline from "../components/GrowthTimeline.vue";
 import PlotCloseup from "../components/PlotCloseup.vue";
 import GaugeCard from "../components/GaugeCard.vue";
@@ -1070,7 +1189,7 @@ import {
   buildSnapshotFromActual,
   WEATHER_CODE_MAP,
 } from "../scene/weatherState.js";
-import { getSoilProfile } from "../api.js";
+import { getSoilRegionProfile } from "../scene/soilProfiles.js";
 import {
   createInitialPlotStates,
   REGION_CONFIGS,
@@ -1081,6 +1200,13 @@ import {
   normalizeScenarioGroups,
   SCENARIO_LIMITS,
 } from "../scene/scenarioBuilder.js";
+import {
+  blockSpan,
+  createLayoutFromRegion,
+  expandLayoutBlock,
+  normalizeLayoutForRegion,
+  regionFromLayout,
+} from "../scene/scenarioLayout.js";
 import {
   DEMO_DURATION_SECONDS,
   DEMO_TOTAL_DAYS,
@@ -1114,6 +1240,14 @@ const sceneRef = ref(null);
 const sceneView = ref("region");
 const SCENARIO_STORAGE_KEY = "agri-twin-scenario:v1";
 
+function buildLayoutMap(regions = []) {
+  return Object.fromEntries(
+    regions
+      .filter((region) => region.scenarioGroupId)
+      .map((region) => [region.scenarioGroupId, createLayoutFromRegion(region)])
+  );
+}
+
 function loadConfirmedScenario() {
   try {
     const raw = localStorage.getItem(SCENARIO_STORAGE_KEY);
@@ -1121,7 +1255,16 @@ function loadConfirmedScenario() {
     const parsed = JSON.parse(raw);
     const groups = normalizeScenarioGroups(parsed?.groups || []);
     const built = buildScenarioRegions(groups);
-    return built.totalPlots ? { groups } : null;
+    if (!built.totalPlots) return null;
+    const layouts = {};
+    for (const region of built.regions) {
+      const normalized = normalizeLayoutForRegion(
+        region,
+        parsed?.layouts?.[region.scenarioGroupId]
+      );
+      layouts[region.scenarioGroupId] = normalized || createLayoutFromRegion(region);
+    }
+    return { groups, layouts };
   } catch (error) {
     return null;
   }
@@ -1129,6 +1272,7 @@ function loadConfirmedScenario() {
 
 const initialConfirmedScenario = loadConfirmedScenario();
 const scenarioConfirmed = ref(initialConfirmedScenario);
+const confirmedScenarioLayouts = ref(initialConfirmedScenario?.layouts || {});
 const scenarioSetupOpen = ref(!initialConfirmedScenario);
 const scenarioDraft = ref(
   initialConfirmedScenario
@@ -1147,8 +1291,14 @@ const scenarioPreview = computed(() => {
     totalPlots: groups.reduce((total, group) => total + group.plotCount, 0),
   };
 });
-const confirmedRegionConfigs = computed(() =>
+const baseConfirmedRegionConfigs = computed(() =>
   buildScenarioRegions(scenarioConfirmed.value?.groups || []).regions
+);
+const confirmedRegionConfigs = computed(() =>
+  baseConfirmedRegionConfigs.value.map((region) => {
+    const layout = confirmedScenarioLayouts.value[region.scenarioGroupId];
+    return layout ? regionFromLayout(region, layout) : region;
+  })
 );
 const draftRegionConfigs = ref([]);
 let draftRegionTimer = 0;
@@ -1166,14 +1316,55 @@ watch(
 const activeRegionConfigs = computed(() =>
   scenarioSetupOpen.value ? draftRegionConfigs.value : confirmedRegionConfigs.value
 );
-const activeScenarioGroups = computed(() => scenarioPreview.value.groups);
-const scenarioTotalPlots = computed(() => scenarioPreview.value.totalPlots);
+const activeScenarioGroups = computed(() => {
+  if (scenarioSetupOpen.value) return scenarioPreview.value.groups;
+  return scenarioPreview.value.groups
+    .map((group) => {
+      const region = confirmedRegionConfigs.value.find(
+        (item) => item.scenarioGroupId === group.id
+      );
+      return {
+        ...group,
+        gridPlotCount: group.plotCount,
+        plotCount: region?.cells.length || 0,
+      };
+    })
+    .filter((group) => group.plotCount > 0);
+});
+const scenarioTotalPlots = computed(() =>
+  scenarioSetupOpen.value
+    ? scenarioPreview.value.totalPlots
+    : confirmedRegionConfigs.value.reduce((total, region) => total + region.cells.length, 0)
+);
 const scenarioCanApply = computed(() => scenarioTotalPlots.value > 0);
 const plotStates = reactive({});
+const layoutUndoStack = ref([]);
+const layoutRedoStack = ref([]);
 
-function replacePlotStates(configs) {
+function copyPlotStateValues(target, source) {
+  target.params = { ...source.params };
+  target.physiologicalProgress = source.physiologicalProgress;
+  target.simulatedDay = source.simulatedDay;
+  target.currentStage = source.currentStage;
+  target.growthRatePct = source.growthRatePct;
+  target.stressed = source.stressed;
+  target.growthStalled = source.growthStalled;
+  target.stressReason = source.stressReason;
+  target.stressDetail = source.stressDetail ? { ...source.stressDetail } : null;
+}
+
+function replacePlotStates(configs, { splitSources = [] } = {}) {
+  const previousStates = { ...plotStates };
+  const nextStates = createInitialPlotStates(configs);
+  for (const [id, state] of Object.entries(nextStates)) {
+    if (previousStates[id]) nextStates[id] = previousStates[id];
+  }
+  for (const { id, sourceId } of splitSources) {
+    if (!previousStates[sourceId] || !nextStates[id]) continue;
+    copyPlotStateValues(nextStates[id], previousStates[sourceId]);
+  }
   Object.keys(plotStates).forEach((key) => delete plotStates[key]);
-  Object.assign(plotStates, createInitialPlotStates(configs));
+  Object.assign(plotStates, nextStates);
 }
 
 replacePlotStates(activeRegionConfigs.value);
@@ -1374,8 +1565,33 @@ const regionCatalog = [
 ];
 
 const selectedRegion = ref(regionCatalog[0]);
+const mapEntryOpen = ref(true);
+const mapSelectedRegionKey = ref(regionCatalog[0]?.key || null);
+
+function selectMapRegion(region) {
+  mapSelectedRegionKey.value = region.key;
+  sceneRef.value?.applySoilProfile?.(region.key);
+}
+
+function enterMappedRegion(region) {
+  if (!region) return;
+  sceneRef.value?.applySoilProfile?.(region.key);
+  selectedObj.value = null;
+  sceneRef.value?.selectObject?.(null);
+  sceneRef.value?.focusRiceFields?.(true);
+  selectedRegion.value = region;
+  mapSelectedRegionKey.value = region.key;
+  mapEntryOpen.value = false;
+}
+
+function openRegionMap() {
+  mapSelectedRegionKey.value = selectedRegion.value.key;
+  mapEntryOpen.value = true;
+}
+
 const terrainOptions = computed(() => regionCatalog.map((region) => ({
   key: region.key,
+  code: ({ plain: "湖", hill: "丘", south: "南", mountain: "山", east: "东" })[region.key] || "田",
   short: region.short,
   name: region.name,
   terrain: region.terrain,
@@ -1438,13 +1654,17 @@ function applyScenarioSetup() {
     notify('请至少生成一块田');
     return;
   }
-  scenarioConfirmed.value = { groups };
+  const layouts = buildLayoutMap(built.regions);
+  scenarioConfirmed.value = { groups, layouts };
+  confirmedScenarioLayouts.value = layouts;
   try {
-    localStorage.setItem(SCENARIO_STORAGE_KEY, JSON.stringify({ groups }));
+    localStorage.setItem(SCENARIO_STORAGE_KEY, JSON.stringify({ groups, layouts }));
   } catch (error) {
     // ignore storage failures
   }
   replacePlotStates(built.regions);
+  layoutUndoStack.value = [];
+  layoutRedoStack.value = [];
   componentManager.components.splice(0, componentManager.components.length);
   componentManager.nextId = 1;
   selectedObj.value = null;
@@ -1456,6 +1676,195 @@ function applyScenarioSetup() {
   scanPlotAlerts();
   notify(`场景已生成：${built.totalPlots} 块田`);
 }
+
+const LAYOUT_DIRECTIONS = Object.freeze(["up", "down", "left", "right"]);
+
+function currentPlotLayout(plotId) {
+  if (!plotId) return null;
+  const region = confirmedRegionConfigs.value.find((item) =>
+    item.cells.some((cell) => cell.id === plotId)
+  );
+  if (!region?.scenarioGroupId) return null;
+  const baseRegion = baseConfirmedRegionConfigs.value.find(
+    (item) => item.scenarioGroupId === region.scenarioGroupId
+  );
+  const layout = normalizeLayoutForRegion(
+    baseRegion || region,
+    confirmedScenarioLayouts.value[region.scenarioGroupId]
+  ) || createLayoutFromRegion(baseRegion || region);
+  return {
+    region,
+    baseRegion: baseRegion || region,
+    groupId: region.scenarioGroupId,
+    layout,
+    span: blockSpan(layout, plotId),
+  };
+}
+
+function persistScenarioLayouts(layouts) {
+  try {
+    localStorage.setItem(
+      SCENARIO_STORAGE_KEY,
+      JSON.stringify({ groups: scenarioConfirmed.value?.groups || [], layouts })
+    );
+  } catch (error) {
+    // Storage is optional; the in-memory layout remains usable.
+  }
+}
+
+function clampComponentPlacements(configs) {
+  const plotCells = new Map(
+    configs.flatMap((region) => region.cells.map((cell) => [cell.id, cell]))
+  );
+  for (const component of componentManager.components) {
+    if (component.plotId === GLOBAL_PLOT_ID || !component.placement) continue;
+    const cell = plotCells.get(component.plotId);
+    if (!cell) continue;
+    if (component.type === COMPONENT_TYPES.SUNSHADE) {
+      componentManager.updatePlacement(component.id, { x: 0, z: 0, rotationY: 0 });
+      continue;
+    }
+    const halfWidth = Math.max(0.5, cell.widthM / 2 - 0.8);
+    const halfDepth = Math.max(0.5, cell.depthM / 2 - 0.8);
+    componentManager.updatePlacement(component.id, {
+      x: clamp(component.placement.x || 0, -halfWidth, halfWidth),
+      z: clamp(component.placement.z || 0, -halfDepth, halfDepth),
+      rotationY: component.placement.rotationY || 0,
+    });
+  }
+}
+
+function applySceneLayout(groupId, nextLayout, { splitSources = [], recordHistory = false } = {}) {
+  const baseRegion = baseConfirmedRegionConfigs.value.find(
+    (region) => region.scenarioGroupId === groupId
+  );
+  const normalized = normalizeLayoutForRegion(baseRegion, nextLayout);
+  if (!baseRegion || !normalized) return { ok: false, reason: "invalid-layout" };
+
+  const previousLayouts = confirmedScenarioLayouts.value;
+  const previousRegion = confirmedRegionConfigs.value.find(
+    (region) => region.scenarioGroupId === groupId
+  );
+  const nextRegion = regionFromLayout(baseRegion, normalized);
+  const nextLayouts = { ...previousLayouts, [groupId]: normalized };
+  const nextConfigs = baseConfirmedRegionConfigs.value.map((region) => {
+    if (region.scenarioGroupId === groupId) return nextRegion;
+    const layout = normalizeLayoutForRegion(
+      region,
+      nextLayouts[region.scenarioGroupId]
+    );
+    return layout ? regionFromLayout(region, layout) : region;
+  });
+
+  const nextIds = new Set(nextRegion.cells.map((cell) => cell.id));
+  const removedIds = previousRegion?.cells
+    .map((cell) => cell.id)
+    .filter((id) => !nextIds.has(id)) || [];
+  for (const plotId of removedIds) {
+    const attached = componentManager.listByPlot(plotId);
+    for (const component of attached) componentManager.remove(component.id);
+  }
+  if (selectedObj.value?.type === "component" && !componentManager.getById(selectedObj.value.id)) {
+    selectedObj.value = null;
+  }
+  if (inspectingCameraId.value && !componentManager.getById(inspectingCameraId.value)) {
+    sceneRef.value?.exitInspectionView();
+    inspectingCameraId.value = null;
+  }
+
+  if (recordHistory) {
+    layoutUndoStack.value.push({ groupId, layout: previousLayouts[groupId] });
+  }
+  confirmedScenarioLayouts.value = nextLayouts;
+  scenarioConfirmed.value = {
+    ...(scenarioConfirmed.value || {}),
+    layouts: nextLayouts,
+  };
+  persistScenarioLayouts(nextLayouts);
+  replacePlotStates(nextConfigs, { splitSources });
+  clampComponentPlacements(nextConfigs);
+  sceneRef.value?.syncComponents();
+
+  if (selectedObj.value?.type === "plot") {
+    const selectedCell = nextRegion.cells.find((cell) => cell.id === selectedObj.value.id);
+    if (selectedCell) {
+      selectedObj.value = {
+        ...selectedObj.value,
+        name: selectedCell.displayName || selectedObj.value.name,
+        widthM: selectedCell.widthM,
+        depthM: selectedCell.depthM,
+      };
+    } else {
+      selectedObj.value = null;
+    }
+  }
+  scanPlotAlerts();
+  return { ok: true, region: nextRegion, removedIds };
+}
+
+function expandSelectedPlot(direction) {
+  if (scenarioSetupOpen.value || selectedObj.value?.type !== "plot") return;
+  const context = currentPlotLayout(selectedObj.value.id);
+  if (!context) return;
+  const result = expandLayoutBlock(context.layout, selectedObj.value.id, direction);
+  if (!result.ok) {
+    notify(result.reason === "boundary" ? "已到总边界，不能再向该方向扩展" : "该方向没有可占用的相邻田块");
+    return;
+  }
+  layoutRedoStack.value = [];
+  const applied = applySceneLayout(context.groupId, result.layout, {
+    splitSources: result.splitSources,
+    recordHistory: true,
+  });
+  if (!applied.ok) {
+    notify("田块扩展失败，布局校验未通过");
+    return;
+  }
+  const removedText = result.removedIds.length ? `，${result.removedIds.length} 块相邻田块已并入` : "";
+  notify(`已占用 ${result.occupiedCells} 个相邻格${removedText}`);
+}
+
+function undoPlotLayout() {
+  const entry = layoutUndoStack.value.pop();
+  if (!entry) return;
+  const current = confirmedScenarioLayouts.value[entry.groupId];
+  if (current) layoutRedoStack.value.push({ groupId: entry.groupId, layout: current });
+  applySceneLayout(entry.groupId, entry.layout);
+  notify("已撤销上一次田块调整");
+}
+
+function redoPlotLayout() {
+  const entry = layoutRedoStack.value.pop();
+  if (!entry) return;
+  const current = confirmedScenarioLayouts.value[entry.groupId];
+  if (current) layoutUndoStack.value.push({ groupId: entry.groupId, layout: current });
+  applySceneLayout(entry.groupId, entry.layout);
+  notify("已重做田块调整");
+}
+
+function restoreSelectedPlotLayout() {
+  const context = currentPlotLayout(selectedObj.value?.id);
+  if (!context) return;
+  const initialLayout = createLayoutFromRegion(context.baseRegion);
+  if (JSON.stringify(initialLayout.blocks) === JSON.stringify(context.layout.blocks)) {
+    notify("当前已是初始分块");
+    return;
+  }
+  layoutRedoStack.value = [];
+  applySceneLayout(context.groupId, initialLayout, { recordHistory: true });
+  notify("已恢复初始分块");
+}
+
+const selectedPlotLayoutContext = computed(() => {
+  if (scenarioSetupOpen.value || selectedObj.value?.type !== "plot") return null;
+  const context = currentPlotLayout(selectedObj.value.id);
+  if (!context?.span) return null;
+  const available = {};
+  for (const direction of LAYOUT_DIRECTIONS) {
+    available[direction] = expandLayoutBlock(context.layout, selectedObj.value.id, direction).ok;
+  }
+  return { ...context, available };
+});
 
 const REGION_SOIL_PROFILES = {
   plain: {
@@ -1522,22 +1931,8 @@ const selectedRegionConfig = computed(() =>
   REGION_CONFIG_BY_KEY.plain
 );
 const weatherMode = ref("actual");
-// —— P2 新增：Drawer 开关 + 地块结构常量 ——
+// —— P2 新增：Drawer 开关 ——
 const weatherDrawerOpen = ref(false);
-// P3 布局重构：左侧折叠面板默认收起
-const regionAccordionOpen = ref(false);
-const PLOT_STRUCTURE = computed(() => {
-  const config = selectedRegionConfig.value;
-  const terrainNames = { plain: "平原", hill: "丘陵", south: "喀斯特", mountain: "梯田", east: "河谷" };
-  const groups = activeScenarioGroups.value.filter((group) => group.plotCount > 0);
-  return {
-    modelCount: scenarioTotalPlots.value,
-    layoutLabel: groups.map((group) => `${terrainNames[group.terrainKey]}${group.plotCount}块`).join(" + ") || "待规划",
-    totalSizeM: config?.cells?.length
-      ? `${config.totalWidthM.toFixed(1)} × ${config.totalDepthM.toFixed(1)} m`
-      : "尚未生成",
-  };
-});
 const liveWeatherEnabled = computed(() => weatherMode.value === "actual");
 const weather = ref("sunny");
 const weatherSnapshot = ref(ACTUAL_WEATHER_DEFAULTS);
@@ -1872,21 +2267,22 @@ const selectedPlotWarnings = computed(() => {
   }
   return warnings;
 });
-const soilProfileData = ref({});
-const DEFAULT_SOIL_LAYERS = [
-  { name: "耕作层（表土）", from: 0, to: 30, color: "#6f5537" },
-  { name: "黏土层", from: 30, to: 90, color: "#a87b45" },
-  { name: "砂土层", from: 90, to: 160, color: "#c3a16b" },
-  { name: "砾石层", from: 160, to: 220, color: "#86898b" },
-];
 const soilProfile = computed(() => {
-  const regional = REGION_SOIL_PROFILES[selectedRegion.value.key];
-  const layers = soilProfileData.value.layers?.length ? soilProfileData.value.layers : DEFAULT_SOIL_LAYERS;
+  const regional = getSoilRegionProfile(selectedRegion.value.key);
   return {
-    ...soilProfileData.value,
-    plot: regional.plot,
-    totalDepth: soilProfileData.value.totalDepth || 220,
-    layers: layers.map((layer, index) => ({ ...layer, ...regional.layers[index] })),
+    plot: `${regional.regionName}示范田`,
+    totalDepthM: regional.layers[regional.layers.length - 1].depthCm[1] / 100,
+    layers: regional.layers.map((layer) => ({
+      key: layer.key,
+      name: layer.name,
+      texture: layer.texture,
+      from: layer.depthCm[0] / 100,
+      to: layer.depthCm[1] / 100,
+      color: layer.base,
+      moisture: layer.moisture,
+      temperatureC: layer.temperatureC,
+      ph: layer.ph,
+    })),
   };
 });
 
@@ -2006,6 +2402,19 @@ function statusText(s) {
 
 function statusClass(s) {
   return s === "warning" ? "tag-orange" : s === "danger" ? "tag-red" : "tag-green";
+}
+
+function onSoilSelect(layer) {
+  if (!layer) return;
+  placementType.value = null;
+  selectedObj.value = {
+    id: `soil-${selectedRegion.value.key}-${layer.key}`,
+    type: "soil",
+    name: layer.name,
+    status: "normal",
+    desc: layer.description,
+    soilLayer: layer,
+  };
 }
 
 function onSelect(obj) {
@@ -2303,6 +2712,7 @@ function clearSelection() {
     inspectingCameraId.value = null;
   }
   selectedObj.value = null;
+  sceneRef.value?.clearSoilMarker?.();
   if (sceneRef.value) sceneRef.value.selectObject(null);
 }
 
@@ -2343,6 +2753,10 @@ const ALERT_ISSUE_DEFS = Object.freeze({
 
 // 单地块显示名：Karst-R02-C04 -> 喀斯特 2行4格
 function plotDisplayName(plotId) {
+  const configuredCell = activeRegionConfigs.value
+    .flatMap((region) => region.cells)
+    .find((cell) => cell.id === plotId);
+  if (configuredCell?.displayName) return configuredCell.displayName;
   const m = /^(.+)-R(\d{2})-C(\d{2})$/.exec(String(plotId || ""));
   if (!m) return String(plotId || "");
   const labels = { Plain: "平原", Hill: "丘陵", Karst: "喀斯特", Mountain: "山地", Valley: "河谷" };
@@ -2875,7 +3289,7 @@ watch(
   { deep: true }
 );
 
-onMounted(async () => {
+onMounted(() => {
   updateClock();
   syncSelectedRegionToScenario();
   scanPlotAlerts();           // 首次扫描
@@ -2893,12 +3307,6 @@ onMounted(async () => {
   }, 5 * 60 * 1000);
   document.addEventListener("visibilitychange", onWeatherVisibilityChange);
   document.addEventListener("keydown", handleKeydown);
-
-  try {
-    soilProfileData.value = await getSoilProfile();
-  } catch (err) {
-    soilProfileData.value = {};
-  }
 });
 
 function onWeatherVisibilityChange() {
@@ -3250,6 +3658,22 @@ onBeforeUnmount(() => {
   color: #9bddeb;
   font-size: 10px;
   letter-spacing: 0;
+}
+
+.map-return-btn {
+  padding: 5px 9px;
+  border: 1px solid rgba(184, 214, 214, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.035);
+  color: #9fb6ba;
+  font: inherit;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.map-return-btn:hover {
+  border-color: rgba(155, 232, 220, 0.5);
+  color: #d9fbf5;
 }
 
 .weather-mode-label {
@@ -3709,12 +4133,198 @@ onBeforeUnmount(() => {
 
 .plot-warning-panel,
 .plot-components-panel,
+.plot-layout-panel,
+.soil-layer-inspector,
 .component-detail {
   margin-top: 12px;
   padding: 10px 11px;
   border: 1px solid rgba(115, 180, 190, 0.16);
   border-radius: 10px;
   background: rgba(5, 18, 26, 0.42);
+}
+
+.soil-layer-inspector {
+  display: grid;
+  gap: 12px;
+}
+
+.soil-layer-inspector-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.soil-layer-swatch {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 5px;
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.28);
+}
+
+.soil-layer-inspector-head div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.soil-layer-inspector-head strong {
+  color: #e4f4f5;
+  font-size: 13px;
+}
+
+.soil-layer-inspector-head span:last-child {
+  overflow: hidden;
+  color: #87a8af;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.soil-layer-properties {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.soil-layer-properties div {
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid rgba(115, 180, 190, 0.12);
+  border-radius: 7px;
+  background: rgba(14, 37, 44, 0.55);
+}
+
+.soil-layer-properties dt {
+  color: #7899a2;
+  font-size: 9px;
+}
+
+.soil-layer-properties dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  color: #cfe6e9;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.plot-layout-panel {
+  overflow: hidden;
+}
+
+.plot-layout-span {
+  color: #8fdce8;
+  font-size: 10px;
+}
+
+.plot-expand-pad {
+  display: grid;
+  grid-template-columns: 34px 58px 34px;
+  grid-template-rows: 34px 48px 34px;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.plot-expand-btn {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid rgba(105, 211, 227, 0.28);
+  border-radius: 7px;
+  background: rgba(30, 72, 82, 0.62);
+  color: #9beaf3;
+  font: 700 18px/1 ui-monospace, SFMono-Regular, Consolas, monospace;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.plot-expand-btn:hover:not(:disabled) {
+  border-color: rgba(104, 231, 246, 0.72);
+  background: rgba(35, 103, 116, 0.78);
+  color: #f1fdff;
+}
+
+.plot-expand-btn:focus-visible {
+  outline: 2px solid #67e8f9;
+  outline-offset: 2px;
+}
+
+.plot-expand-btn:disabled {
+  border-color: rgba(105, 143, 151, 0.13);
+  background: rgba(18, 37, 44, 0.35);
+  color: rgba(146, 178, 185, 0.28);
+  cursor: not-allowed;
+}
+
+.plot-expand-btn.is-up {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.plot-expand-btn.is-left {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.plot-expand-btn.is-right {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.plot-expand-btn.is-down {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+.plot-expand-core {
+  grid-column: 2;
+  grid-row: 2;
+  place-self: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(103, 232, 249, 0.38);
+  border-radius: 5px;
+  background:
+    linear-gradient(90deg, transparent 47%, rgba(103, 232, 249, 0.22) 48%, rgba(103, 232, 249, 0.22) 52%, transparent 53%),
+    linear-gradient(0deg, transparent 47%, rgba(103, 232, 249, 0.22) 48%, rgba(103, 232, 249, 0.22) 52%, transparent 53%),
+    rgba(16, 54, 61, 0.7);
+  box-shadow: inset 0 0 12px rgba(62, 199, 217, 0.13);
+}
+
+.plot-layout-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.plot-layout-actions button {
+  min-width: 0;
+  height: 27px;
+  padding: 0 6px;
+  border: 1px solid rgba(103, 178, 190, 0.18);
+  border-radius: 6px;
+  background: rgba(14, 39, 47, 0.64);
+  color: #a7cbd1;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.plot-layout-actions button:hover:not(:disabled) {
+  border-color: rgba(103, 232, 249, 0.44);
+  color: #e4fbff;
+}
+
+.plot-layout-actions button:disabled {
+  color: rgba(137, 171, 179, 0.3);
+  cursor: not-allowed;
 }
 
 .plot-section-heading {
@@ -6340,233 +6950,446 @@ onBeforeUnmount(() => {
   z-index: 120;
   display: grid;
   place-items: center;
-  padding: 18px;
-  background: rgba(3, 9, 15, 0.76);
+  padding: 24px;
+  background: rgba(3, 8, 12, 0.82);
+  backdrop-filter: blur(8px);
 }
 
 .scenario-setup-panel {
-  width: min(780px, 96vw);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  width: min(920px, calc(100vw - 48px));
   max-height: 90vh;
-  overflow-y: auto;
-  padding: 20px;
-  border: 1px solid rgba(94, 234, 212, 0.22);
-  border-radius: 14px;
-  background: #0b1722;
-  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.46);
+  overflow: hidden;
+  border: 1px solid rgba(116, 190, 198, 0.25);
+  border-radius: 8px;
+  background: #0d181e;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.58);
 }
 
 .scenario-setup-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid rgba(125, 211, 252, 0.1);
+  gap: 24px;
+  padding: 24px 26px 20px;
+  border-bottom: 1px solid rgba(142, 190, 198, 0.14);
+  background: rgba(18, 31, 38, 0.96);
+}
+
+.scenario-heading-copy {
+  min-width: 0;
+}
+
+.scenario-heading-copy .eyebrow {
+  color: #70c9c5;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
 }
 
 .scenario-setup-head h2 {
-  margin: 4px 0 5px;
+  margin: 5px 0 6px;
   color: #effdff;
-  font-size: 20px;
+  font-size: 26px;
+  line-height: 1.2;
   letter-spacing: 0;
 }
 
 .scenario-setup-head p {
   margin: 0;
-  color: #819eaa;
-  font-size: 10px;
-  line-height: 1.5;
+  color: #91aab1;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .scenario-total {
   flex: 0 0 auto;
+  display: grid;
+  gap: 5px;
+  width: 154px;
+  padding: 11px 13px;
+  border: 1px solid rgba(226, 177, 96, 0.3);
+  border-radius: 8px;
+  background: rgba(77, 54, 27, 0.22);
+}
+
+.scenario-total-label {
+  color: #b9a482;
+  font-size: 11px;
+}
+
+.scenario-total-value {
   display: flex;
   align-items: baseline;
-  gap: 4px;
-  min-width: 92px;
-  padding: 8px 10px;
-  border: 1px solid rgba(94, 234, 212, 0.2);
-  border-radius: 8px;
-  background: rgba(94, 234, 212, 0.06);
+  gap: 5px;
 }
 
-.scenario-total strong {
-  color: #8ff4e6;
-  font-size: 22px;
+.scenario-total-value strong {
+  color: #ffe1a6;
+  font-size: 26px;
+  line-height: 1;
 }
 
-.scenario-total span {
-  color: #6d96a1;
-  font-size: 9px;
+.scenario-total-value span {
+  color: #9f9582;
+  font-size: 12px;
+}
+
+.scenario-total-track {
+  display: block;
+  width: 100%;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.scenario-total-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #e2b160;
+  transition: width 0.18s ease;
 }
 
 .scenario-editor-list {
   display: grid;
-  gap: 10px;
-  margin-top: 14px;
+  gap: 14px;
+  min-height: 0;
+  padding: 20px 26px 6px;
+  overflow-y: auto;
+}
+
+.scenario-editor-list.is-multi {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
 }
 
 .scenario-editor-card {
   display: grid;
-  gap: 11px;
-  padding: 12px;
-  border: 1px solid rgba(125, 211, 252, 0.12);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.022);
+  gap: 18px;
+  min-width: 0;
+  padding: 17px;
+  border: 1px solid rgba(132, 177, 186, 0.18);
+  border-radius: 8px;
+  background: #111f26;
 }
 
 .scenario-editor-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 11px;
+  min-width: 0;
 }
 
-.scenario-editor-title strong {
-  color: #dff8ff;
+.scenario-group-index {
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(100, 204, 197, 0.28);
+  border-radius: 7px;
+  background: rgba(63, 135, 132, 0.16);
+  color: #8fe3dc;
   font-size: 12px;
+  font-weight: 700;
 }
 
-.scenario-editor-title span {
-  color: #66838e;
-  font-size: 9px;
+.scenario-group-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.scenario-group-copy strong {
+  color: #edf9fa;
+  font-size: 15px;
+}
+
+.scenario-group-copy span {
+  overflow: hidden;
+  color: #7f9ba3;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .scenario-remove {
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
   margin-left: auto;
-  padding: 4px 7px;
-  border: 1px solid rgba(251, 113, 133, 0.25);
-  border-radius: 6px;
-  background: rgba(251, 113, 133, 0.06);
-  color: #f7a4b0;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid rgba(239, 133, 146, 0.28);
+  border-radius: 7px;
+  background: rgba(153, 55, 68, 0.12);
+  color: #f1a1aa;
   font: inherit;
-  font-size: 9px;
+  font-size: 19px;
   cursor: pointer;
+}
+
+.scenario-remove:hover {
+  border-color: rgba(244, 114, 133, 0.58);
+  background: rgba(153, 55, 68, 0.22);
+  color: #ffd3d8;
+}
+
+.scenario-config-section {
+  display: grid;
+  gap: 10px;
+}
+
+.scenario-section-title,
+.scenario-control-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.scenario-section-title span,
+.scenario-control-head label,
+.scenario-control-head > span:first-child {
+  color: #c2d6da;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.scenario-section-title small {
+  color: #6f8a91;
+  font-size: 10px;
 }
 
 .terrain-choice-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 5px;
+  gap: 8px;
 }
 
 .terrain-choice {
-  display: grid;
-  gap: 2px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
   min-width: 0;
-  padding: 8px 5px;
-  border: 1px solid rgba(125, 211, 252, 0.1);
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.022);
-  color: #9cb8c2;
+  min-height: 68px;
+  padding: 10px;
+  border: 1px solid rgba(128, 164, 172, 0.16);
+  border-radius: 8px;
+  background: #14252c;
+  color: #a9bec3;
   font: inherit;
+  text-align: left;
   cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
 }
 
-.terrain-choice strong,
-.terrain-choice span {
+.terrain-choice:hover {
+  border-color: rgba(110, 206, 198, 0.4);
+  background: #172b32;
+}
+
+.terrain-choice:focus-visible,
+.scenario-segmented button:focus-visible,
+.scenario-add-group:focus-visible,
+.scenario-cancel:focus-visible,
+.scenario-apply:focus-visible,
+.terrain-choice:focus-visible,
+.scenario-count-input:focus-visible,
+.scenario-range:focus-visible {
+  outline: 2px solid #68d8d1;
+  outline-offset: 2px;
+}
+
+.terrain-choice-mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  background: rgba(127, 159, 166, 0.12);
+  color: #9db3b8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.terrain-choice-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.terrain-choice-copy strong,
+.terrain-choice-copy small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.terrain-choice strong {
-  color: #dff8ff;
-  font-size: 10px;
+.terrain-choice-copy strong {
+  color: #e5f3f5;
+  font-size: 12px;
 }
 
-.terrain-choice span {
-  color: #66838e;
-  font-size: 8px;
+.terrain-choice-copy small {
+  color: #6f8a91;
+  font-size: 10px;
 }
 
 .terrain-choice.active {
-  border-color: rgba(94, 234, 212, 0.55);
-  background: rgba(94, 234, 212, 0.11);
-  box-shadow: inset 0 0 0 1px rgba(94, 234, 212, 0.1);
+  border-color: rgba(102, 226, 216, 0.72);
+  background: rgba(42, 112, 112, 0.38);
+  box-shadow: inset 0 0 0 1px rgba(92, 224, 211, 0.2);
 }
 
-.scenario-field-row,
-.scenario-area-row {
-  display: flex;
-  align-items: center;
+.terrain-choice.active .terrain-choice-mark {
+  background: #69d9cf;
+  color: #09201e;
+}
+
+.terrain-choice.active .terrain-choice-copy strong {
+  color: #f2fffd;
+}
+
+.terrain-choice.active .terrain-choice-copy small {
+  color: #9cc9c3;
+}
+
+.scenario-control-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(180px, 0.8fr);
   gap: 10px;
 }
 
-.scenario-field-row label,
-.scenario-area-row > span {
-  flex: 0 0 58px;
-  color: #7d9aa4;
-  font-size: 9px;
+.scenario-control-block {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid rgba(128, 164, 172, 0.13);
+  border-radius: 8px;
+  background: rgba(5, 15, 20, 0.38);
 }
 
-.scenario-field-row input[type='range'] {
-  flex: 1;
-  min-width: 100px;
-  accent-color: #5eead4;
+.scenario-control-head strong {
+  color: #d9ecee;
+  font-size: 13px;
+}
+
+.scenario-range {
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  accent-color: #66d9d0;
+  cursor: pointer;
+}
+
+.scenario-range-scale {
+  display: flex;
+  justify-content: space-between;
+  color: #617b82;
+  font-size: 10px;
 }
 
 .scenario-count-input {
-  width: 58px;
-  padding: 5px 6px;
-  border: 1px solid rgba(125, 211, 252, 0.16);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.035);
+  width: 66px;
+  height: 36px;
+  padding: 0 8px;
+  border: 1px solid rgba(132, 177, 186, 0.22);
+  border-radius: 7px;
+  background: #0c181e;
   color: #e5fbff;
   font: inherit;
-  font-size: 10px;
+  font-size: 14px;
+  font-weight: 700;
   text-align: center;
 }
 
 .scenario-segmented {
-  display: flex;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
 }
 
 .scenario-segmented button {
-  padding: 5px 12px;
-  border: 1px solid rgba(125, 211, 252, 0.12);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.025);
-  color: #83a4af;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid rgba(128, 164, 172, 0.16);
+  border-radius: 7px;
+  background: #12232a;
+  color: #8ea6ac;
   font: inherit;
-  font-size: 9px;
+  font-size: 11px;
   cursor: pointer;
 }
 
 .scenario-segmented button.active {
-  border-color: rgba(94, 234, 212, 0.5);
-  background: rgba(94, 234, 212, 0.12);
-  color: #a8f4ea;
+  border-color: rgba(102, 226, 216, 0.58);
+  background: rgba(42, 112, 112, 0.4);
+  color: #ddfffa;
 }
 
 .scenario-add-group {
-  width: 100%;
-  margin-top: 10px;
-  padding: 8px;
-  border: 1px dashed rgba(125, 211, 252, 0.22);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: calc(100% - 52px);
+  min-height: 42px;
+  margin: 14px 26px 4px;
+  padding: 9px 12px;
+  border: 1px dashed rgba(103, 201, 194, 0.32);
   border-radius: 8px;
-  background: transparent;
-  color: #8ac5d2;
+  background: rgba(44, 97, 97, 0.08);
+  color: #9ddbd5;
   font: inherit;
-  font-size: 10px;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
+}
+
+.scenario-add-group span {
+  font-size: 19px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.scenario-add-group:hover {
+  border-color: rgba(103, 222, 213, 0.58);
+  background: rgba(44, 112, 111, 0.18);
 }
 
 .scenario-setup-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid rgba(125, 211, 252, 0.1);
+  padding: 17px 26px 20px;
+  border-top: 1px solid rgba(142, 190, 198, 0.13);
+  background: rgba(14, 25, 31, 0.96);
+}
+
+.scenario-footer-summary {
+  margin-right: auto;
+  color: #7e979e;
+  font-size: 11px;
 }
 
 .scenario-cancel,
 .scenario-apply {
-  padding: 8px 18px;
+  min-width: 96px;
+  min-height: 40px;
+  padding: 9px 20px;
   border-radius: 7px;
   font: inherit;
-  font-size: 11px;
+  font-size: 13px;
+  font-weight: 700;
   cursor: pointer;
 }
 
@@ -6605,8 +7428,33 @@ onBeforeUnmount(() => {
   }
 
   .scenario-setup-panel {
-    width: 100%;
+    width: calc(100vw - 16px);
     max-height: 94vh;
+  }
+
+  .scenario-setup-head {
+    gap: 12px;
+    padding: 18px 16px 16px;
+  }
+
+  .scenario-setup-head h2 {
+    font-size: 22px;
+  }
+
+  .scenario-total {
+    width: 128px;
+    padding: 9px 11px;
+  }
+
+  .scenario-total-value strong {
+    font-size: 22px;
+  }
+
+  .scenario-editor-list {
+    padding: 14px 14px 4px;
+  }
+
+  .scenario-editor-card {
     padding: 14px;
   }
 
@@ -6614,12 +7462,23 @@ onBeforeUnmount(() => {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .scenario-field-row {
-    flex-wrap: wrap;
+  .scenario-control-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .scenario-field-row input[type='range'] {
-    min-width: 160px;
+  .scenario-add-group {
+    width: calc(100% - 28px);
+    margin: 12px 14px 2px;
+  }
+
+  .scenario-setup-actions {
+    flex-wrap: wrap;
+    padding: 14px;
+  }
+
+  .scenario-footer-summary {
+    flex: 1 0 100%;
+    margin-right: 0;
   }
 }
 </style>

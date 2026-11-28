@@ -13,7 +13,9 @@
     "test:settlement": "node --test tests/plotSettlement.test.js",
     "test:simulation": "node --test tests/plotSimulation.test.js",
     "test:components": "node --test tests/farmComponents.test.js",
-    "test:catalog": "node --test tests/farmComponentCatalog.test.js"
+    "test:catalog": "node --test tests/farmComponentCatalog.test.js",
+    "test:layout": "node --test tests/scenarioLayout.test.js",
+    "test:soil": "node --test tests/soilProfiles.test.js"
   },
   "dependencies": {
     "dompurify": "^3.5.0",

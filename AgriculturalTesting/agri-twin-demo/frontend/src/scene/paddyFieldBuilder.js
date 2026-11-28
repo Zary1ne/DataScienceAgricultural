@@ -9,6 +9,7 @@ import {
 } from "./farmComponentVisualFactory.js";
 import { ZERO_COMPONENT_EFFECTS } from "./farmComponentRates.js";
 import { GLOBAL_PLOT_ID } from "./farmComponents.js";
+import { getSoilRegionProfile } from "./soilProfiles.js";
 
 const MUD_LAYER_DEPTH_M = 0.4;
 const SELECTION_RING_CLEARANCE_M = 0.02;
@@ -23,7 +24,7 @@ function addMesh(parent, geometry, material, x, y, z) {
   return object;
 }
 
-function buildRegion(root, region, plotStates, registry, pickables, resources, previewMode = false) {
+function buildRegion(root, region, plotStates, registry, pickables, resources, previewMode = false, showTerrainDecor = true) {
   const regionRoot = new THREE.Group();
   regionRoot.name = region.rootName;
   regionRoot.position.set(region.originXZ.x, 0, region.originXZ.z);
@@ -102,7 +103,7 @@ function buildRegion(root, region, plotStates, registry, pickables, resources, p
       targetWaterY: waterY,   // P4: 目标水位，用于 lerp 平滑过渡
       meta: {
         id: cell.id,
-        name: `${region.name} ${cell.row}行${cell.column}格`,
+        name: cell.displayName || `${region.name} ${cell.row}行${cell.column}格`,
         type: "plot",
         regionId: region.id,
         row: cell.row,
@@ -154,7 +155,7 @@ function buildRegion(root, region, plotStates, registry, pickables, resources, p
   }
   levees.instanceMatrix.needsUpdate = true;
   regionRoot.add(levees);
-  if (!previewMode) buildTerrainDecor(regionRoot, region, resources);
+  if (!previewMode && showTerrainDecor) buildTerrainDecor(regionRoot, region, resources);
 }
 
 function addTerrainMesh(parent, geometry, material, position, scale, rotationY = 0) {
@@ -553,6 +554,158 @@ function createGrassTexture() {
   return texture;
 }
 
+function createSoilTexture(baseColor, fleckColors, fleckCount, seed = 1) {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = baseColor;
+  ctx.fillRect(0, 0, size, size);
+  let value = seed * 9301 + 49297;
+  const random = () => {
+    value = (value * 9301 + 49297) % 233280;
+    return value / 233280;
+  };
+  for (let index = 0; index < fleckCount; index += 1) {
+    ctx.fillStyle = fleckColors[index % fleckColors.length];
+    const radius = 0.5 + random() * 2.4;
+    ctx.beginPath();
+    ctx.ellipse(random() * size, random() * size, radius, radius * (0.5 + random()), random() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(4, 2);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function soilLayerInfo(profile, layer, isGrass = false) {
+  const thicknessCm = Math.max(0, layer.depthCm[1] - layer.depthCm[0]);
+  return {
+    key: layer.key,
+    name: isGrass ? "草皮层" : layer.name,
+    horizon: isGrass ? `${layer.name}表面` : layer.name,
+    texture: layer.texture,
+    regionName: profile.regionName,
+    depthCm: [...layer.depthCm],
+    depthLabel: `${(layer.depthCm[0] / 100).toFixed(2)}-${(layer.depthCm[1] / 100).toFixed(2)} m`,
+    thicknessCm,
+    thicknessM: thicknessCm / 100,
+    thicknessLabel: `${(thicknessCm / 100).toFixed(2)} m`,
+    color: layer.base,
+    moisture: layer.moisture,
+    temperatureC: layer.temperatureC,
+    ph: layer.ph,
+    description: isGrass
+      ? `草皮覆盖下为${layer.texture}，${layer.description}`
+      : layer.description,
+  };
+}
+
+const SOIL_PROFILE_VISUAL_DEPTH_M = 12.2;
+const SOIL_GRASS_VISUAL_HEIGHT_M = 0.2;
+const SOIL_VISUAL_SCALES = [
+  { scaleX: 1, scaleZ: 1 },
+  { scaleX: 0.995, scaleZ: 0.995 },
+  { scaleX: 0.975, scaleZ: 0.98 },
+  { scaleX: 0.95, scaleZ: 0.965 },
+  { scaleX: 0.92, scaleZ: 0.94 },
+];
+
+function buildVisualSoilLayers(profile) {
+  const topCm = profile.layers[0].depthCm[0];
+  const bottomCm = profile.layers[profile.layers.length - 1].depthCm[1];
+  const totalCm = Math.max(1, bottomCm - topCm);
+  let top = -0.44;
+  const soilLayers = profile.layers.map((descriptor, index) => {
+    const thicknessCm = Math.max(1, descriptor.depthCm[1] - descriptor.depthCm[0]);
+    const height = SOIL_PROFILE_VISUAL_DEPTH_M * thicknessCm / totalCm;
+    const layer = {
+      ...SOIL_VISUAL_SCALES[index + 1],
+      top,
+      height,
+      descriptor,
+      profileIndex: index,
+    };
+    top -= height;
+    return layer;
+  });
+  return [
+    {
+      ...SOIL_VISUAL_SCALES[0],
+      top: -0.28,
+      height: SOIL_GRASS_VISUAL_HEIGHT_M,
+      descriptor: profile.layers[0],
+      profileIndex: 0,
+      isGrassCap: true,
+    },
+    ...soilLayers,
+  ];
+}
+
+function addSoilMonolith(root, resources, bounds, regionKey = 'plain') {
+  const margin = 10;
+  const width = Math.max(26, bounds.maxX - bounds.minX + margin * 2);
+  const depth = Math.max(22, bounds.maxZ - bounds.minZ + margin * 2);
+  const centerX = (bounds.minX + bounds.maxX) / 2;
+  const centerZ = (bounds.minZ + bounds.maxZ) / 2;
+  const group = new THREE.Group();
+  group.name = 'FloatingSoilProfile';
+  const profile = getSoilRegionProfile(regionKey);
+  const soilPickables = [];
+
+  const layers = buildVisualSoilLayers(profile);
+
+  const box = new THREE.BoxGeometry(1, 1, 1);
+  resources.geometries.add(box);
+  layers.forEach((layer, index) => {
+    const isGrass = Boolean(layer.isGrassCap);
+    const profileIndex = layer.profileIndex;
+    const descriptor = layer.descriptor;
+    const texture = createSoilTexture(
+      isGrass ? '#43692f' : descriptor.base,
+      isGrass ? ['#5f853d', '#2f4f27', '#799a48'] : descriptor.flecks,
+      [260, 620, 520, 680, 900][index] || 620,
+      index + 1,
+    );
+    const material = new THREE.MeshLambertMaterial({
+      map: texture,
+      color: 0xffffff,
+      flatShading: true,
+    });
+    const mesh = new THREE.Mesh(box, material);
+    mesh.name = `SoilLayer_${isGrass ? 'Grass' : descriptor.key}`;
+    mesh.userData.soilProfileIndex = profileIndex;
+    mesh.userData.soilVisualIndex = index;
+    mesh.userData.isGrassCap = isGrass;
+    mesh.userData.soilLayer = soilLayerInfo(profile, descriptor, isGrass);
+    mesh.position.set(centerX, layer.top - layer.height / 2, centerZ);
+    mesh.scale.set(width * layer.scaleX, layer.height, depth * layer.scaleZ);
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    group.add(mesh);
+    soilPickables.push(mesh);
+    resources.materials.add(material);
+    resources.textures.add(texture);
+  });
+
+  const grassEdge = new THREE.Mesh(
+    new THREE.PlaneGeometry(width + 0.5, depth + 0.5),
+    new THREE.MeshLambertMaterial({ color: 0x496e34, transparent: true, opacity: 0.92 })
+  );
+  grassEdge.rotation.x = -Math.PI / 2;
+  grassEdge.position.set(centerX, -0.265, centerZ);
+  group.add(grassEdge);
+  resources.geometries.add(grassEdge.geometry);
+  resources.materials.add(grassEdge.material);
+
+  root.add(group);
+  return { group, soilPickables };
+}
+
 export function createPaddyFieldScene(
   plotStates = {},
   componentManager = null,
@@ -561,12 +714,16 @@ export function createPaddyFieldScene(
 ) {
   const regions = Array.isArray(regionOrRegions) ? regionOrRegions : [regionOrRegions];
   const previewMode = Boolean(options.previewMode);
+  const soilProfileMode = Boolean(options.soilProfileMode);
+  let currentSoilProfileKey = options.soilProfileKey || 'plain';
+  const showTerrainDecor = options.showTerrainDecor !== false && !soilProfileMode;
   const root = new THREE.Group();
   root.name = "OpenRiceFields";
   const registry = new Map();
   const componentRegistry = new Map();
   const pickables = [];
   const componentPickables = [];
+  let soilPickables = [];
   const componentVisuals = new Map();
   const resources = {
     geometries: new Set(),
@@ -592,13 +749,6 @@ export function createPaddyFieldScene(
   let simulationAccumulator = 0;
   let elapsedSeconds = 0;
 
-  regions.forEach((region) => {
-    buildRegion(root, region, plotStates, registry, pickables, resources, previewMode);
-  });
-  root.add(riceBatches.root);
-
-  // P9: 大田外围草地底板 —— 带纹理的草绿平面（同时作为全局设备的拾取面）
-  // 位于田块下方（y=-0.62），不会遮挡任何稻田
   const worldBounds = regions.flatMap((region) => region.cells.map((cell) => ({
     minX: region.originXZ.x + cell.centerXZ.x - cell.widthM / 2,
     maxX: region.originXZ.x + cell.centerXZ.x + cell.widthM / 2,
@@ -609,6 +759,23 @@ export function createPaddyFieldScene(
   const maxX = worldBounds.length ? Math.max(...worldBounds.map((item) => item.maxX)) : 80;
   const minZ = worldBounds.length ? Math.min(...worldBounds.map((item) => item.minZ)) : -20;
   const maxZ = worldBounds.length ? Math.max(...worldBounds.map((item) => item.maxZ)) : 20;
+
+  regions.forEach((region) => {
+    buildRegion(root, region, plotStates, registry, pickables, resources, previewMode, showTerrainDecor);
+  });
+  if (soilProfileMode && regions.length) {
+    const soil = addSoilMonolith(
+      root,
+      resources,
+      { minX, maxX, minZ, maxZ },
+      currentSoilProfileKey,
+    );
+    soilPickables = soil.soilPickables;
+  }
+  root.add(riceBatches.root);
+
+  // P9: 大田外围草地底板 —— 带纹理的草绿平面（同时作为全局设备的拾取面）
+  // 位于田块下方（y=-0.62），不会遮挡任何稻田
   const groundGeometry = new THREE.PlaneGeometry(
     Math.max(130, maxX - minX + 74),
     Math.max(82, maxZ - minZ + 54)
@@ -618,11 +785,13 @@ export function createPaddyFieldScene(
   const groundMaterial = new THREE.MeshLambertMaterial({ map: groundTexture });
   const groundMesh = new THREE.Mesh(groundGeometry, groundMaterial);
   groundMesh.name = "GlobalGround";
-  groundMesh.position.set(
-    (minX + maxX) / 2,
-    -0.62,
-    (minZ + maxZ) / 2
-  );
+  groundMesh.position.set((minX + maxX) / 2, soilProfileMode ? -13.6 : -0.62, (minZ + maxZ) / 2);
+  if (soilProfileMode) {
+    groundMaterial.transparent = true;
+    groundMaterial.opacity = 0;
+    groundMaterial.depthWrite = false;
+    groundMaterial.colorWrite = false;
+  }
   groundMesh.userData.isGlobalGround = true;
   groundMesh.receiveShadow = false;
   root.add(groundMesh);
@@ -687,6 +856,39 @@ export function createPaddyFieldScene(
     }
   }
 
+  function applySoilProfile(nextRegionKey) {
+    if (!soilProfileMode || !soilPickables.length) return false;
+    const profile = getSoilRegionProfile(nextRegionKey);
+    const visualLayers = buildVisualSoilLayers(profile);
+    for (const mesh of soilPickables) {
+      const visualIndex = mesh.userData.soilVisualIndex ?? 0;
+      const visualLayer = visualLayers[visualIndex] || visualLayers[visualLayers.length - 1];
+      const isGrass = Boolean(visualLayer.isGrassCap);
+      const profileIndex = visualLayer.profileIndex;
+      const descriptor = visualLayer.descriptor;
+      const texture = createSoilTexture(
+        isGrass ? '#43692f' : descriptor.base,
+        isGrass ? ['#5f853d', '#2f4f27', '#799a48'] : descriptor.flecks,
+        [260, 620, 520, 680, 900][visualIndex] || 620,
+        visualIndex + 1,
+      );
+      const previousTexture = mesh.material.map;
+      mesh.material.map = texture;
+      mesh.material.needsUpdate = true;
+      if (previousTexture) {
+        resources.textures.delete(previousTexture);
+        previousTexture.dispose();
+      }
+      resources.textures.add(texture);
+      mesh.position.y = visualLayer.top - visualLayer.height / 2;
+      mesh.scale.y = visualLayer.height;
+      mesh.userData.soilProfileIndex = profileIndex;
+      mesh.userData.soilLayer = soilLayerInfo(profile, descriptor, isGrass);
+    }
+    currentSoilProfileKey = nextRegionKey;
+    return true;
+  }
+
   syncComponents();
 
   let lastDispatchContext = {};
@@ -741,14 +943,17 @@ export function createPaddyFieldScene(
   return {
     root,
     previewMode,
+    soilProfileMode,
     regionConfig: regions[0] || null,
     regionConfigs: regions,
     registry,
     componentRegistry,
     pickables,
     componentPickables,
+    soilPickables,
     groundMesh,
     riceBatches,
+    applySoilProfile,
     syncComponents,
     dispatchNow() {
       elapsedSeconds += 1;

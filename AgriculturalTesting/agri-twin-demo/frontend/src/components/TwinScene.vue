@@ -20,14 +20,17 @@ const props = defineProps({
   regionConfig: { type: Object, default: null },
   regionConfigs: { type: Array, default: null },
   previewMode: { type: Boolean, default: false },
+  soilProfileMode: { type: Boolean, default: false },
+  soilProfileKey: { type: String, default: "plain" },
   /** P3: 收割进度 0~1 —— 驱动水稻变矮、变灰成为稻茬 */
   harvestAmount: { type: Number, default: 0 },
 });
 
-const emit = defineEmits(["select", "component-select", "ground-click", "view-change"]);
+const emit = defineEmits(["select", "component-select", "soil-select", "ground-click", "view-change"]);
 
 const container = ref(null);
 const label = reactive({ visible: false, x: 0, y: 0, name: "", status: "" });
+const soilLabel = reactive({ visible: false, x: 0, y: 0, name: "" });
 const showFps = import.meta.env.DEV;
 const fps = ref("--");
 
@@ -64,6 +67,7 @@ let hemisphereLight = null;
 const flashes = new Map();
 let currentSnapshot = props.weatherSnapshot || ACTUAL_WEATHER_DEFAULTS;
 let currentWeather = currentSnapshot.key;
+let appliedSoilProfileKey = props.soilProfileKey;
 let selectedId = null;
 let hoveredId = null;
 let inspectionMode = false;
@@ -153,11 +157,28 @@ const panRight = new THREE.Vector3();
 const panUp = new THREE.Vector3();
 const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const dragWorldPoint = new THREE.Vector3();
+const soilMarkerWorld = new THREE.Vector3();
+
+function showSoilMarker(point, layer) {
+  if (!point || !layer) return;
+  soilMarkerWorld.copy(point);
+  const layerName = layer.horizon || layer.name || "土壤层";
+  soilLabel.name = layer.thicknessLabel
+    ? `${layerName} · ${layer.thicknessLabel}`
+    : layerName;
+  soilLabel.visible = true;
+}
+
+function clearSoilMarker() {
+  soilLabel.visible = false;
+  soilLabel.name = "";
+}
 
 function updateCamera() {
+  const cameraY = target.y + radius * Math.cos(phi);
   camera.position.set(
     target.x + radius * Math.sin(phi) * Math.sin(theta),
-    Math.max(1.2, target.y + radius * Math.cos(phi)),
+    props.soilProfileMode ? cameraY : Math.max(1.2, cameraY),
     target.z + radius * Math.sin(phi) * Math.cos(theta)
   );
   camera.lookAt(target);
@@ -168,10 +189,67 @@ function overviewRadius() {
   const halfVertical = THREE.MathUtils.degToRad((camera?.fov || 42) / 2);
   const halfHorizontal = Math.atan(Math.tan(halfVertical) * aspect);
   const regions = activeRegionConfigs();
-  const span = regions.length
-    ? Math.max(22, ...regions.map((region) => Math.max(region.totalWidthM, region.totalDepthM) / 2))
-    : Math.max(22, props.regionConfig?.viewRadiusM ?? 34);
-  return THREE.MathUtils.clamp(span / Math.tan(halfHorizontal) * 1.04, 48, 220);
+  const worldCells = regions.flatMap((region) => region.cells.map((cell) => ({
+    x: region.originXZ.x + cell.centerXZ.x,
+    z: region.originXZ.z + cell.centerXZ.z,
+  })));
+  const cellHalfSpan = worldCells.length
+    ? Math.max(
+        (Math.max(...worldCells.map((cell) => cell.x)) - Math.min(...worldCells.map((cell) => cell.x))) / 2,
+        (Math.max(...worldCells.map((cell) => cell.z)) - Math.min(...worldCells.map((cell) => cell.z))) / 2,
+      )
+    : 0;
+  const baseSpan = Math.max(22, cellHalfSpan + 6, props.regionConfig?.viewRadiusM ?? 0);
+  if (props.soilProfileMode) {
+    // Soil mode owns a wider footprint than the plots. Keep the complete
+    // monolith outside the camera and leave a clean visual margin around it.
+    const soilSpan = Math.max(22, cellHalfSpan + 10);
+    return THREE.MathUtils.clamp(soilSpan / Math.tan(halfHorizontal) * 1.12, 36, 180);
+  }
+  return THREE.MathUtils.clamp(baseSpan / Math.tan(halfHorizontal) * 1.04, 48, 220);
+}
+
+function sceneFocusY() {
+  return props.soilProfileMode ? -4.6 : 1.5;
+}
+
+function overviewPhi() {
+  return Math.PI / 3;
+}
+
+function riceOverviewRadius() {
+  const aspect = camera?.aspect || 1.4;
+  const halfVertical = THREE.MathUtils.degToRad((camera?.fov || 42) / 2);
+  const halfHorizontal = Math.atan(Math.tan(halfVertical) * aspect);
+  const cells = activeRegionConfigs().flatMap((region) => region.cells.map((cell) => ({
+    x: region.originXZ.x + cell.centerXZ.x,
+    z: region.originXZ.z + cell.centerXZ.z,
+  })));
+  if (!cells.length) return 36;
+  const halfSpan = Math.max(
+    (Math.max(...cells.map((cell) => cell.x)) - Math.min(...cells.map((cell) => cell.x))) / 2,
+    (Math.max(...cells.map((cell) => cell.z)) - Math.min(...cells.map((cell) => cell.z))) / 2,
+  );
+  return THREE.MathUtils.clamp((Math.max(18, halfSpan) + 4) / Math.tan(halfHorizontal) * 1.06, 28, 220);
+}
+
+function focusRiceFields(immediate = false) {
+  if (inspectionMode) exitInspectionView();
+  autoRotate = false;
+  const center = sceneCenter();
+  center.y = 1.2;
+  const nextRadius = riceOverviewRadius();
+  const nextPhi = 0.32;
+  if (immediate) {
+    cameraTransition = null;
+    target.copy(center);
+    radius = nextRadius;
+    theta = 0;
+    phi = nextPhi;
+    updateCamera();
+    return;
+  }
+  transitionCameraTo(center, nextRadius, 0, nextPhi);
 }
 
 // P11: 俯仰限幅 —— 相对初始视角不超过 ±60°，同时保证总俯仰不越过 ±85°（防止倒转）
@@ -558,6 +636,18 @@ function pickAt(clientX, clientY) {
   }
 
   // P7: 大田外围底板 —— 给全局设备提供落点
+  if (farm.soilPickables?.length) {
+    const soilHits = raycaster.intersectObjects(farm.soilPickables, false);
+    if (soilHits.length) {
+      return {
+        kind: "soil",
+        id: soilHits[0].object.userData.soilLayer?.key || "soil-layer",
+        layer: soilHits[0].object.userData.soilLayer,
+        point: soilHits[0].point.clone(),
+      };
+    }
+  }
+
   if (farm.groundMesh) {
     const groundHits = raycaster.intersectObject(farm.groundMesh, false);
     if (groundHits.length) {
@@ -652,7 +742,7 @@ function onPointerDown(e) {
   }
   cameraTransition = null;
   // 左键平移，右键或 Alt+左键旋转，贴近地图/看片操作。
-  panning = e.button === 1 || (e.button === 0 && !e.altKey);
+    panning = e.button === 1 || e.button === 2 || e.altKey || (!props.soilProfileMode && e.button === 0);
   if (panning) e.preventDefault();
   canvasDown = true;
   dragging = true;
@@ -700,20 +790,32 @@ function onPointerMove(e) {
     if (panning) {
       camera.updateMatrixWorld();
       panRight.setFromMatrixColumn(camera.matrixWorld, 0);
-      panRight.y = 0;
       panRight.normalize();
       panUp.setFromMatrixColumn(camera.matrixWorld, 1);
-      panUp.y = 0;
       panUp.normalize();
+      if (!props.soilProfileMode) {
+        panRight.y = 0;
+        panUp.y = 0;
+        panRight.normalize();
+        panUp.normalize();
+      }
       const scale = radius * 0.0018;
       target.addScaledVector(panRight, -dx * scale);
-      target.addScaledVector(panUp, -dy * scale);
-      target.x = THREE.MathUtils.clamp(target.x, -20, 120);
-      target.z = THREE.MathUtils.clamp(target.z, -60, 60);
+      target.addScaledVector(panUp, props.soilProfileMode ? dy * scale : -dy * scale);
+      if (props.soilProfileMode) {
+        target.x = THREE.MathUtils.clamp(target.x, -180, 260);
+        target.y = THREE.MathUtils.clamp(target.y, -80, 80);
+        target.z = THREE.MathUtils.clamp(target.z, -180, 180);
+      } else {
+        target.x = THREE.MathUtils.clamp(target.x, -20, 120);
+        target.z = THREE.MathUtils.clamp(target.z, -60, 60);
+      }
     } else {
       theta -= dx * 0.005;
       phi -= dy * 0.004;
-      phi = Math.max(0.18, Math.min(Math.PI / 2 - 0.05, phi));
+      phi = props.soilProfileMode
+        ? Math.max(0.08, Math.min(Math.PI - 0.08, phi))
+        : Math.max(0.18, Math.min(Math.PI / 2 - 0.05, phi));
     }
     updateCamera();
     return;
@@ -722,7 +824,9 @@ function onPointerMove(e) {
   hoveredId = picked?.kind === "plot" ? picked.id : null;
   if (renderer) {
     renderer.domElement.style.cursor =
-      picked?.kind === "plot" || picked?.kind === "component" ? "pointer" : "grab";
+      picked?.kind === "plot" || picked?.kind === "component" || picked?.kind === "soil"
+        ? "pointer"
+        : "grab";
   }
 }
 
@@ -756,6 +860,8 @@ function onPointerUp(e) {
   panning = false;
   if (e.button === 0 && moved < 6) {
     const picked = pickAt(e.clientX, e.clientY);
+    if (picked?.kind === "soil") showSoilMarker(picked.point, picked.layer);
+    else clearSoilMarker();
     if (picked?.kind === "component") {
       hoveredId = null;
       // 选中装置只更新详情面板，不改变用户当前观察视角。
@@ -769,6 +875,11 @@ function onPointerUp(e) {
       setSelected(null);
       emit("select", null);
       emit("ground-click", { point: picked.point });
+    } else if (picked?.kind === "soil") {
+      hoveredId = null;
+      setSelected(null, { focusCamera: false });
+      emit("select", null);
+      emit("soil-select", picked.layer || null);
     } else {
       const id = picked?.id || null;
       setSelected(id);
@@ -852,8 +963,8 @@ function setSelected(id, { focusCamera = true } = {}) {
     label.visible = false;
     if (previousId && focusCamera) {
       const center = sceneCenter();
-      center.y = 1.5;
-      transitionCameraTo(center, overviewRadius(), 0, Math.PI / 3);
+      center.y = sceneFocusY();
+      transitionCameraTo(center, overviewRadius(), 0, overviewPhi());
     }
     return;
   }
@@ -974,6 +1085,7 @@ function highlightPlots(ids, color = 0xfbbf24, duration = 3000) {
 function resetView() {
   if (inspectionMode) exitInspectionView();
   autoRotate = false;
+  clearSoilMarker();
   setSelected(null, { focusCamera: false });
   emit("select", null);
   focusRegion();
@@ -983,11 +1095,13 @@ function focusRegion() {
   if (inspectionMode) exitInspectionView();
   autoRotate = false;
   emit("view-change", "region");
+  const center = sceneCenter();
+  center.y = sceneFocusY();
   transitionCameraTo(
-    sceneCenter(),
+    center,
     overviewRadius(),
     0,
-    Math.PI / 3
+    overviewPhi()
   );
 }
 
@@ -1104,6 +1218,17 @@ function exitInspectionView() {
   return true;
 }
 
+function applySoilProfile(regionKey = props.soilProfileKey) {
+  if (regionKey === appliedSoilProfileKey) return true;
+  const applied = Boolean(farm?.applySoilProfile?.(regionKey));
+  if (applied) {
+    clearSoilMarker();
+    appliedSoilProfileKey = regionKey;
+    previewNeedsRender = true;
+  }
+  return applied;
+}
+
 defineExpose({
   flashObject,
   focusObject,
@@ -1116,9 +1241,12 @@ defineExpose({
   exitInspectionView,
   highlightPlots,
   clearPlotHighlights,
+  applySoilProfile,
+  clearSoilMarker,
+  focusRiceFields,
 });
 
-function rebuild() {
+function rebuild({ focusSelection = true } = {}) {
   clearPlotHighlights();
   if (farm) {
     scene.remove(farm.root);
@@ -1128,10 +1256,15 @@ function rebuild() {
     props.plotStates,
     props.componentManager,
     activeRegionConfigs(),
-    { previewMode: props.previewMode }
+    {
+      previewMode: props.previewMode,
+      soilProfileMode: props.soilProfileMode,
+      soilProfileKey: props.soilProfileKey,
+    }
   );
+  appliedSoilProfileKey = props.soilProfileKey;
   scene.add(farm.root);
-  setSelected(selectedId);
+  setSelected(selectedId, { focusCamera: focusSelection });
   previewNeedsRender = true;
 }
 
@@ -1141,14 +1274,28 @@ function scheduleLayoutRebuild() {
     layoutRebuildTimer = 0;
     previewNeedsRender = true;
     if (inspectionMode) exitInspectionView();
-    selectedId = null;
     hoveredId = null;
-    label.visible = false;
-    emit("select", null);
-    rebuild();
-    target.copy(sceneCenter());
-    target.y = 1.5;
-    radius = overviewRadius();
+    const keptSelectionId = selectedId;
+    rebuild({ focusSelection: false });
+    const keptEntry = keptSelectionId ? farm?.registry.get(keptSelectionId) : null;
+    if (keptEntry) {
+      selectedId = keptSelectionId;
+      setSelected(keptSelectionId, { focusCamera: false });
+      const worldPosition = keptEntry.group.getWorldPosition(new THREE.Vector3());
+      target.set(worldPosition.x, worldPosition.y + 0.5, worldPosition.z);
+      radius = Math.max(
+        radius,
+        Math.min(keptEntry.meta?.widthM ?? 10, keptEntry.meta?.depthM ?? 10) * 1.9
+      );
+      emit("select", { ...keptEntry.meta });
+    } else {
+      selectedId = null;
+      label.visible = false;
+      emit("select", null);
+      target.copy(sceneCenter());
+      target.y = sceneFocusY();
+      radius = overviewRadius();
+    }
     updateCamera();
   }, 240);
 }
@@ -1218,7 +1365,7 @@ onMounted(() => {
   applyWeather();
 
   target.copy(sceneCenter());
-  target.y = 1.5;
+  target.y = sceneFocusY();
   radius = overviewRadius();
   updateCamera();
 
@@ -1339,6 +1486,14 @@ onMounted(() => {
       }
     }
 
+    if (soilLabel.visible) {
+      tmp.copy(soilMarkerWorld).project(camera);
+      const rect = renderer.domElement.getBoundingClientRect();
+      soilLabel.x = (tmp.x * 0.5 + 0.5) * rect.width;
+      soilLabel.y = (-tmp.y * 0.5 + 0.5) * rect.height;
+      soilLabel.visible = tmp.z < 1;
+    }
+
     renderer.render(scene, camera);
     previewNeedsRender = false;
   };
@@ -1409,21 +1564,24 @@ watch(
 );
 
 watch(
-  () => props.regionConfigs,
+  () => props.soilProfileMode,
   (next, previous) => {
-    if (!next || next === previous) return;
-    if (inspectionMode) exitInspectionView();
-    selectedId = null;
-    hoveredId = null;
-    label.visible = false;
-    emit("select", null);
-    rebuild();
-    target.copy(sceneCenter());
-    target.y = 1.5;
-    radius = overviewRadius();
-    updateCamera();
+    if (next && !previous) {
+      theta = 0;
+      phi = overviewPhi();
+      cameraTransition = null;
+    }
+    scheduleLayoutRebuild();
   },
   { deep: false }
+);
+
+watch(
+  () => props.soilProfileKey,
+  (next) => {
+    if (next && next !== appliedSoilProfileKey) applySoilProfile(next);
+  },
+  { flush: "sync" }
 );
 
 watch(
@@ -1474,6 +1632,14 @@ watch(
       :style="{ left: label.x + 'px', top: label.y + 'px' }"
     >
       <span class="dot"></span>{{ label.name }}
+    </div>
+    <div
+      v-if="soilLabel.visible"
+      class="soil-layer-marker"
+      :style="{ left: soilLabel.x + 'px', top: soilLabel.y + 'px' }"
+    >
+      <span class="soil-layer-pin"></span>
+      <span class="soil-layer-name">{{ soilLabel.name }}</span>
     </div>
   </div>
 </template>
@@ -1565,6 +1731,59 @@ watch(
 
 .obj-label.is-danger .dot {
   background: #ff3b30;
+}
+
+.soil-layer-marker {
+  position: absolute;
+  z-index: 4;
+  width: 8px;
+  height: 8px;
+  transform: translate(-4px, -50%);
+  pointer-events: none;
+}
+
+.soil-layer-pin {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.18),
+    0 0 14px rgba(255, 255, 255, 0.95);
+  animation: soil-pin-pulse 1.8s ease-in-out infinite;
+}
+
+.soil-layer-name {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 6px;
+  background: rgba(8, 19, 27, 0.82);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  color: #f4fbff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+@keyframes soil-pin-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 3px rgba(255, 255, 255, 0.16),
+      0 0 12px rgba(255, 255, 255, 0.82);
+  }
+  50% {
+    box-shadow:
+      0 0 0 6px rgba(255, 255, 255, 0.06),
+      0 0 18px rgba(255, 255, 255, 1);
+  }
 }
 
 .scene-hint {

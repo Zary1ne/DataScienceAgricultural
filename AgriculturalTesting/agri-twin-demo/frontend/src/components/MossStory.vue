@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="story-root">
     <div ref="story" class="story">
       <div ref="stage" class="stage">

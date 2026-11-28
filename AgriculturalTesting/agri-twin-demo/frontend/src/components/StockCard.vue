@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="m-card stock-card">
     <div class="stock-left">
       <div class="stock-name">{{ stock.name }}</div>

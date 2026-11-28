@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div>
     <div class="yellow-banner audit-tip">
       ⚠ 社区内容审核流程：用户发布 → 管理员审核 → 公开展示
@@ -27,6 +27,7 @@
           <button v-if="p.status === 'pending'" class="pill-btn pill-btn-sm" @click="approve(p)">
             通过
           </button>
+          <button class="pill-btn pill-btn-sm pill-btn-ghost" @click="remove(p)">删除</button>
         </div>
       </div>
     </div>
@@ -36,7 +37,7 @@
 <script setup>
 import { ref, onMounted } from "vue";
 import EmptyState from "../components/EmptyState.vue";
-import { getAdminPosts, approvePost } from "../api.js";
+import { getAdminPosts, approvePost, deletePost } from "../api.js";
 import { notify } from "../store.js";
 
 const list = ref([]);
@@ -45,10 +46,21 @@ const error = ref(false);
 async function approve(p) {
   try {
     await approvePost(p.id);
-    p.status = "approved";
+    list.value = list.value.filter((item) => item.id !== p.id);
     notify("已审核通过");
   } catch (err) {
     notify("操作失败：后端未连接");
+  }
+}
+
+async function remove(p) {
+  if (!window.confirm(`确定删除帖子「${p.title}」吗？`)) return;
+  try {
+    await deletePost(p.id);
+    list.value = list.value.filter((item) => item.id !== p.id);
+    notify("帖子已删除");
+  } catch (err) {
+    notify(err.message || "删除失败");
   }
 }
 
@@ -86,7 +98,7 @@ onMounted(async () => {
 .audit-title {
   font-size: 15px;
   font-weight: 600;
-  color: #1d1d1f;
+  color: var(--agri-ink);
 }
 
 .audit-meta {
@@ -98,12 +110,12 @@ onMounted(async () => {
 
 .audit-author {
   font-size: 13px;
-  color: #6e6e73;
+  color: var(--agri-muted);
 }
 
 .audit-time {
   font-size: 12px;
-  color: #8e8e93;
+  color: var(--agri-muted);
 }
 
 .audit-right {

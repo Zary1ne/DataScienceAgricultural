@@ -2,11 +2,13 @@ import { createRouter, createWebHistory } from "vue-router";
 import { isLoggedIn, isAdmin, notify } from "./store.js";
 
 import LoginView from "./views/LoginView.vue";
+import RegisterView from "./views/RegisterView.vue";
 import UserLayout from "./layouts/UserLayout.vue";
 import AdminLayout from "./layouts/AdminLayout.vue";
 
 import HomeView from "./views/HomeView.vue";
 import CommunityView from "./views/CommunityView.vue";
+import PostDetailView from "./views/PostDetailView.vue";
 import DetectView from "./views/DetectView.vue";
 import TwinView from "./views/TwinView.vue";
 import MessagesView from "./views/MessagesView.vue";
@@ -23,12 +25,14 @@ const router = createRouter({
   routes: [
     { path: "/", redirect: "/home" },
     { path: "/login", name: "login", component: LoginView },
+    { path: "/register", name: "register", component: RegisterView },
     {
       path: "/",
       component: UserLayout,
       children: [
         { path: "home", name: "home", component: HomeView },
         { path: "community", name: "community", component: CommunityView },
+        { path: "community/posts/:id", name: "post-detail", component: PostDetailView },
         { path: "detect", name: "detect", component: DetectView },
         { path: "twin", name: "twin", component: TwinView },
         { path: "messages", name: "messages", component: MessagesView },
@@ -53,8 +57,8 @@ const router = createRouter({
 });
 
 router.beforeEach((to) => {
-  // 已登录访问登录页 → 跳对应端
-  if (to.path === "/login") {
+  // 已登录访问登录/注册页 → 跳对应端
+  if (to.path === "/login" || to.path === "/register") {
     if (isLoggedIn()) return isAdmin() ? "/admin/dashboard" : "/home";
     return true;
   }

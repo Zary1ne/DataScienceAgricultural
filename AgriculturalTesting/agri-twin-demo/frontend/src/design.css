@@ -1,0 +1,485 @@
+/* ===== AgriTwin 统一设计系统 · 深夜稻田版 =====
+   蓝黑（夜）+ 金属金（稻穗）+ 米白（纸张）三色体系。
+   所有内容装在圆角矩形里，节奏参考 Apple 官网：大留白、少装饰、动效克制。
+   变量名沿用旧的 agri-* 命名，语义已翻转为深色主题：
+   --agri-paper = 页面底色（夜蓝黑）；--agri-ink = 主文字（米白）。 */
+
+:root {
+  --agri-night: #070b12;
+  --agri-night-2: #0a111d;
+  --agri-night-3: #0d1626;
+  --agri-ink: #ece6d8;
+  --agri-ink-soft: #c6c0b3;
+  --agri-paper: #070b12;
+  --agri-paper-deep: #0b1220;
+  --agri-gold: #e8c66e;
+  --agri-gold-bright: #f6e2a8;
+  --agri-gold-deep: #c39a45;
+  --agri-lime: #e8c66e;
+  --agri-lime-deep: #c9a04a;
+  --agri-muted: #8b94a5;
+  --agri-line: rgba(236, 230, 216, 0.14);
+  --agri-line-soft: rgba(236, 230, 216, 0.075);
+  --agri-surface: rgba(255, 255, 255, 0.045);
+  --agri-surface-strong: rgba(255, 255, 255, 0.07);
+  --agri-radius: 22px;
+  --agri-radius-sm: 14px;
+  --agri-shadow: 0 24px 60px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
+  --agri-shadow-hover: 0 30px 76px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(232, 198, 110, 0.22);
+  --agri-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --agri-mono: "SFMono-Regular", "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+  --agri-metal: linear-gradient(135deg, #f6e2a8 0%, #e0b95c 42%, #a97f2c 78%, #f2d68f 100%);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--agri-paper);
+  color: var(--agri-ink);
+  font-family: "HarmonyOS Sans SC", "MiSans", -apple-system, BlinkMacSystemFont,
+    "PingFang SC", "Source Han Sans SC", "Microsoft YaHei UI", "Microsoft YaHei",
+    "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgba(232, 198, 110, 0.85);
+  color: #14100a;
+}
+
+/* 极细网格，让深色页面有“夜里的田垄/图纸”质感 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background-image: linear-gradient(rgba(236, 230, 216, 0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(236, 230, 216, 0.028) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(circle at 50% 0%, #000 0, transparent 82%);
+}
+
+/* —— 布局 —— */
+.page-container {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 40px 28px 72px;
+  animation: agri-rise 0.65s var(--agri-ease) both;
+}
+
+.page-title {
+  font-size: 30px;
+  line-height: 1.15;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  color: var(--agri-ink);
+}
+
+.page-subtitle {
+  font-size: 14.5px;
+  color: var(--agri-muted);
+  margin-top: 8px;
+  letter-spacing: 0.01em;
+}
+
+/* —— 卡片 —— */
+.card {
+  background: linear-gradient(158deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.018));
+  border: 1px solid var(--agri-line-soft);
+  border-radius: var(--agri-radius);
+  box-shadow: var(--agri-shadow);
+  padding: 26px;
+  backdrop-filter: saturate(140%) blur(18px);
+  -webkit-backdrop-filter: saturate(140%) blur(18px);
+  position: relative;
+}
+
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.09), transparent 40%);
+  opacity: 0.55;
+}
+
+.card-hover {
+  transition: transform 0.45s var(--agri-ease), box-shadow 0.45s var(--agri-ease),
+    border-color 0.45s var(--agri-ease);
+}
+
+.card-hover:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--agri-shadow-hover);
+  border-color: rgba(232, 198, 110, 0.38);
+}
+
+.card-title {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--agri-ink);
+}
+
+.card-subtitle {
+  font-size: 13px;
+  color: var(--agri-muted);
+  margin-top: 4px;
+}
+
+/* —— 按钮 —— */
+.pill-btn {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(232, 198, 110, 0.5);
+  background: var(--agri-metal);
+  color: #191204;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 11px 22px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: transform 0.35s var(--agri-ease), box-shadow 0.35s var(--agri-ease),
+    filter 0.35s var(--agri-ease);
+}
+
+.pill-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.55) 50%,
+    transparent 70%
+  );
+  transform: translateX(-130%);
+  transition: transform 0.7s var(--agri-ease);
+}
+
+.pill-btn:hover {
+  filter: brightness(1.06);
+  box-shadow: 0 12px 30px rgba(232, 198, 110, 0.22);
+}
+
+.pill-btn:hover::after {
+  transform: translateX(130%);
+}
+
+.pill-btn:active {
+  transform: scale(0.975);
+}
+
+.pill-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  box-shadow: none;
+}
+
+.pill-btn-ghost {
+  background: rgba(236, 230, 216, 0.05);
+  color: var(--agri-ink);
+  border-color: var(--agri-line);
+}
+
+.pill-btn-ghost::after {
+  display: none;
+}
+
+.pill-btn-ghost:hover {
+  background: rgba(232, 198, 110, 0.12);
+  color: var(--agri-gold-bright);
+  border-color: rgba(232, 198, 110, 0.4);
+  box-shadow: none;
+}
+
+.pill-btn-sm {
+  font-size: 12.5px;
+  padding: 7px 15px;
+}
+
+/* —— 标签 —— */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+
+.tag-blue {
+  background: rgba(232, 198, 110, 0.12);
+  color: #ecd9a4;
+}
+
+.tag-green {
+  color: #fff8e6;
+  background-image: repeating-linear-gradient(
+      115deg,
+      rgba(246, 226, 168, 0) 0 6px,
+      rgba(246, 226, 168, 0.2) 6px 7px,
+      rgba(246, 226, 168, 0) 7px 14px
+    ),
+    linear-gradient(135deg, rgba(255, 248, 230, 0.2), rgba(232, 198, 110, 0.12));
+  border: 1px solid rgba(246, 226, 168, 0.3);
+  text-shadow: 0 0 8px rgba(232, 198, 110, 0.5);
+}
+
+.tag-orange {
+  background: rgba(240, 170, 80, 0.16);
+  color: #f0c083;
+}
+
+.tag-red {
+  background: rgba(255, 99, 99, 0.16);
+  color: #ffb3b3;
+}
+
+.tag-gray {
+  background: rgba(236, 230, 216, 0.07);
+  color: var(--agri-muted);
+}
+
+/* —— 表单 —— */
+.field input,
+.field textarea,
+.field select,
+.search-input {
+  width: 100%;
+  background: rgba(4, 8, 14, 0.55);
+  border: 1px solid var(--agri-line);
+  border-radius: 12px;
+  padding: 11px 14px;
+  font-size: 14px;
+  color: var(--agri-ink);
+  outline: none;
+  transition: border-color 0.3s var(--agri-ease), box-shadow 0.3s var(--agri-ease),
+    background 0.3s var(--agri-ease);
+}
+
+.field input::placeholder,
+.field textarea::placeholder,
+.search-input::placeholder {
+  color: rgba(139, 148, 165, 0.75);
+}
+
+.field input:focus,
+.field textarea:focus,
+.field select:focus,
+.search-input:focus {
+  background: rgba(4, 8, 14, 0.78);
+  border-color: var(--agri-gold-deep);
+  box-shadow: 0 0 0 4px rgba(232, 198, 110, 0.16);
+}
+
+.field-label {
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--agri-ink-soft);
+  letter-spacing: 0.02em;
+}
+
+/* —— 提示条 —— */
+.yellow-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: #f0d9a4;
+  background: rgba(232, 198, 110, 0.1);
+  border: 1px solid rgba(232, 198, 110, 0.2);
+  padding: 12px 16px;
+  border-radius: 12px;
+}
+
+/* —— 进度条 —— */
+.progress {
+  height: 7px;
+  background: rgba(236, 230, 216, 0.09);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--agri-gold-deep), var(--agri-gold-bright));
+  transition: width 0.5s var(--agri-ease);
+}
+
+/* —— 页面切换 —— */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.35s var(--agri-ease), transform 0.35s var(--agri-ease),
+    filter 0.35s var(--agri-ease);
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: translateY(10px);
+  filter: blur(2px);
+}
+
+/* —— 滚动条 —— */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(236, 230, 216, 0.18);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(236, 230, 216, 0.3);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+/* —— 动效辅助 —— */
+@keyframes agri-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes agri-drop-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(232, 198, 110, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 7px rgba(232, 198, 110, 0.1);
+  }
+}
+
+@keyframes agri-status-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(232, 198, 110, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(232, 198, 110, 0);
+  }
+}
+
+/* 数据加载后卡片轻微浮现；只动透明度，避免覆盖 hover 的位移 */
+.page-container .card {
+  animation: agri-fade 0.55s var(--agri-ease) both;
+}
+
+.post-list > * {
+  animation: agri-fade 0.5s var(--agri-ease) both;
+}
+
+.post-list > *:nth-child(2) {
+  animation-delay: 0.05s;
+}
+
+.post-list > *:nth-child(3) {
+  animation-delay: 0.1s;
+}
+
+.post-list > *:nth-child(4) {
+  animation-delay: 0.15s;
+}
+
+.post-list > *:nth-child(5) {
+  animation-delay: 0.2s;
+}
+
+.post-list > *:nth-child(6) {
+  animation-delay: 0.25s;
+}
+
+.dropzone {
+  animation: agri-drop-breathe 5s ease-in-out infinite;
+}
+
+.market-status.live {
+  animation: agri-status-breathe 2.8s ease-in-out infinite;
+}
+
+@keyframes agri-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes agri-breathe {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.5;
+  }
+  50% {
+    transform: translate3d(3%, -2%, 0) scale(1.08);
+    opacity: 0.75;
+  }
+}
+
+@keyframes agri-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(232, 198, 110, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(232, 198, 110, 0);
+  }
+}
+
+.agri-pulse {
+  animation: agri-pulse 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .page-container {
+    padding: 26px 18px 56px;
+  }
+
+  .page-title {
+    font-size: 25px;
+  }
+
+  .card {
+    border-radius: 18px;
+    padding: 20px;
+  }
+}

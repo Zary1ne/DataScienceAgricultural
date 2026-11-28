@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 // P3: 底部水稻生长时间轴 —— 播放/暂停、倍速、拖拽回溯
 // 性能：天数推进与 DAY 数字跳动都在本组件内部完成，避免每 0.1 秒触发整页重渲染
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";

@@ -1,12 +1,12 @@
-<template>
+﻿<template>
   <div>
     <div v-if="error" class="error-tip">数据加载失败：后端未连接</div>
 
     <div class="stat-grid">
-      <StatCard label="总用户数" :value="dash.stats.totalUsers" icon="👥" color="#0071e3" />
-      <StatCard label="今日识别次数" :value="dash.stats.todayDetections" icon="🔍" color="#af52de" />
-      <StatCard label="社区帖子数" :value="dash.stats.communityPosts" icon="📝" color="#34c759" />
-      <StatCard label="待处理建议" :value="dash.stats.pendingFeedback" icon="💬" color="#ff9f0a" />
+      <StatCard label="总用户数" :value="dash.stats.totalUsers" icon="👥" color="#e8c66e" />
+      <StatCard label="今日识别次数" :value="dash.stats.todayDetections" icon="🔍" color="#d9b96f" />
+      <StatCard label="社区帖子数" :value="dash.stats.communityPosts" icon="📝" color="#c9a04a" />
+      <StatCard label="待处理建议" :value="dash.stats.pendingFeedback" icon="💬" color="#f0dca8" />
     </div>
 
     <section class="card admin-section">
@@ -53,9 +53,9 @@ const dash = ref({
 const error = ref(false);
 
 function progressColor(p) {
-  if (p >= 80) return "#34c759";
-  if (p >= 40) return "#0071e3";
-  return "#8e8e93";
+  if (p >= 80) return "linear-gradient(90deg, #c9a04a, #f6e2a8)";
+  if (p >= 40) return "linear-gradient(90deg, #a8792a, #e8c66e)";
+  return "rgba(232, 198, 110, 0.35)";
 }
 
 onMounted(async () => {
@@ -89,7 +89,7 @@ onMounted(async () => {
   align-items: center;
   gap: 24px;
   padding: 16px 0;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  border-bottom: 1px solid rgba(236, 230, 216, 0.09);
 }
 
 .module-row:last-child {
@@ -104,12 +104,12 @@ onMounted(async () => {
 .module-name {
   font-size: 15px;
   font-weight: 500;
-  color: #1d1d1f;
+  color: var(--agri-ink);
 }
 
 .module-owner {
   font-size: 12px;
-  color: #8e8e93;
+  color: var(--agri-muted);
   margin-top: 3px;
 }
 
@@ -129,7 +129,7 @@ onMounted(async () => {
   text-align: right;
   font-size: 13px;
   font-weight: 600;
-  color: #1d1d1f;
+  color: var(--agri-ink);
 }
 
 .timeline {
@@ -141,7 +141,7 @@ onMounted(async () => {
   align-items: center;
   gap: 12px;
   padding: 12px 0;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  border-bottom: 1px solid rgba(236, 230, 216, 0.09);
 }
 
 .timeline-item:last-child {
@@ -152,18 +152,18 @@ onMounted(async () => {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #0071e3;
+  background: var(--agri-ink);
   flex: 0 0 auto;
 }
 
 .timeline-text {
   flex: 1;
   font-size: 14px;
-  color: #1d1d1f;
+  color: var(--agri-ink);
 }
 
 .timeline-time {
   font-size: 12px;
-  color: #8e8e93;
+  color: var(--agri-muted);
 }
 </style>

@@ -219,7 +219,7 @@ onMounted(() => {
   ringGeo.rotateX(-Math.PI / 2);
   selectionRing = new THREE.Mesh(
     ringGeo,
-    new THREE.MeshBasicMaterial({ color: 0x0071e3, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false })
+    new THREE.MeshBasicMaterial({ color: 0xfff3d6, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false })
   );
   selectionRing.position.y = 0.04;
   scene.add(selectionRing);
@@ -302,8 +302,8 @@ watch(
   height: 100%;
   border-radius: 20px;
   overflow: hidden;
-  background: #e9eff2;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+  background: #0a111c;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .scene-canvas {
@@ -317,8 +317,8 @@ watch(
   bottom: 12px;
   transform: translateX(-50%);
   font-size: 12px;
-  color: rgba(60, 78, 92, 0.62);
-  background: rgba(255, 255, 255, 0.66);
+  color: rgba(236, 230, 216, 0.72);
+  background: rgba(8, 13, 22, 0.72);
   padding: 4px 12px;
   border-radius: 980px;
   pointer-events: none;

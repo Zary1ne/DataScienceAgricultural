@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="card stat-card">
     <div class="stat-icon" :style="iconStyle">{{ icon }}</div>
     <div class="stat-body">
@@ -15,12 +15,12 @@ const props = defineProps({
   label: String,
   value: [String, Number],
   icon: String,
-  color: { type: String, default: "#0071e3" },
+  color: { type: String, default: "var(--agri-ink)" },
 });
 
 const iconStyle = computed(() => ({
   color: props.color,
-  background: props.color + "1a",
+  background: `color-mix(in srgb, ${props.color} 12%, transparent)`,
 }));
 </script>
 
@@ -48,12 +48,12 @@ const iconStyle = computed(() => ({
   font-weight: 600;
   letter-spacing: -0.02em;
   line-height: 1;
-  color: #1d1d1f;
+  color: var(--agri-ink);
 }
 
 .stat-label {
   font-size: 13px;
-  color: #6e6e73;
+  color: var(--agri-muted);
   margin-top: 4px;
 }
 </style>

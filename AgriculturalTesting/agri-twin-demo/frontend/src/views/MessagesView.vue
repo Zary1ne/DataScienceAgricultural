@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="page-head">
       <h1 class="page-title">消息中心</h1>
@@ -112,9 +112,9 @@ onMounted(async () => {
 }
 
 .filter-btn {
-  border: none;
-  background: rgba(0, 0, 0, 0.04);
-  color: #6e6e73;
+  border: 1px solid var(--agri-line-soft);
+  background: rgba(236, 230, 216, 0.04);
+  color: var(--agri-muted);
   font-size: 14px;
   padding: 8px 16px;
   border-radius: 980px;
@@ -123,12 +123,13 @@ onMounted(async () => {
 }
 
 .filter-btn:hover {
-  color: #1d1d1f;
+  color: var(--agri-ink);
 }
 
 .filter-btn.active {
-  background: rgba(0, 113, 227, 0.12);
-  color: #0071e3;
+  background: rgba(232, 198, 110, 0.14);
+  color: var(--agri-gold-bright);
+  border-color: rgba(232, 198, 110, 0.36);
   font-weight: 500;
 }
 

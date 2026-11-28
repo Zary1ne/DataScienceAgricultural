@@ -81,20 +81,20 @@ select {
   font-size: 28px;
   font-weight: 600;
   letter-spacing: -0.02em;
-  color: #1d1d1f;
+  color: #f3eddf;
 }
 
 .page-subtitle {
   font-size: 15px;
-  color: #6e6e73;
+  color: #98a1b1;
   margin-top: 6px;
 }
 
 /* —— 胶囊按钮 —— */
 .pill-btn {
   border: none;
-  background: #0071e3;
-  color: #fff;
+  background: #0d1524;
+  color: #f3eddf;
   font-size: 15px;
   font-weight: 500;
   padding: 10px 22px;
@@ -104,7 +104,7 @@ select {
 }
 
 .pill-btn:hover {
-  background: #0077ed;
+  background: #182236;
 }
 
 .pill-btn:active {
@@ -117,12 +117,12 @@ select {
 }
 
 .pill-btn-ghost {
-  background: rgba(0, 113, 227, 0.1);
-  color: #0071e3;
+  background: rgba(236, 230, 216, 0.08);
+  color: #f0dca8;
 }
 
 .pill-btn-ghost:hover {
-  background: rgba(0, 113, 227, 0.16);
+  background: rgba(246, 226, 168, 0.14);
 }
 
 .pill-btn-sm {
@@ -142,13 +142,21 @@ select {
 }
 
 .tag-blue {
-  background: rgba(0, 113, 227, 0.12);
-  color: #0071e3;
+  background: rgba(232, 198, 110, 0.12);
+  color: #ecd9a4;
 }
 
 .tag-green {
-  background: rgba(52, 199, 89, 0.15);
-  color: #248a3d;
+  color: #fff8e6;
+  background-image: repeating-linear-gradient(
+      115deg,
+      rgba(246, 226, 168, 0) 0 6px,
+      rgba(246, 226, 168, 0.2) 6px 7px,
+      rgba(246, 226, 168, 0) 7px 14px
+    ),
+    linear-gradient(135deg, rgba(255, 248, 230, 0.2), rgba(232, 198, 110, 0.12));
+  border: 1px solid rgba(246, 226, 168, 0.3);
+  text-shadow: 0 0 8px rgba(232, 198, 110, 0.5);
 }
 
 .tag-orange {
@@ -190,7 +198,7 @@ select {
   display: block;
   height: 100%;
   border-radius: 980px;
-  background: #0071e3;
+  background: linear-gradient(90deg, #b1852f, #f2d68f);
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 

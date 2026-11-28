@@ -2,7 +2,21 @@
   <div class="user-layout">
     <header class="topnav">
       <div class="topnav-inner">
-        <RouterLink to="/home" class="logo">AgriTwin 智慧农业</RouterLink>
+        <RouterLink to="/home" class="logo">
+          <span class="logo-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path
+                d="M12 21c5.2-2.1 8-6.1 8-11.1 0-3-1.9-6-5-7.4-3 3.1-4.2 7.2-3.2 11.6-2.1-2.8-5-4.4-8.8-4.6.2 6.2 4 10.6 9 11.5Z"
+                fill="currentColor"
+              />
+              <path d="M12 21c-.2-5 .7-9.3 3-13" stroke="#3a2a08" stroke-width="1.2" />
+            </svg>
+          </span>
+          <span class="logo-text">
+            <strong>湘小农</strong>
+            <em>XIANG FARMER</em>
+          </span>
+        </RouterLink>
 
         <nav class="nav-links">
           <RouterLink to="/home" active-class="active">首页</RouterLink>
@@ -21,7 +35,14 @@
           </RouterLink>
 
           <div ref="menuWrap" class="user-menu">
-            <div class="avatar menu-avatar" :style="avatarStyle" @click="toggleMenu">{{ avatarChar }}</div>
+            <Avatar
+              class="menu-avatar"
+              :name="(state.user && state.user.name) || ''"
+              :seed="(state.user && state.user.id) || ''"
+              :url="(state.user && state.user.avatar) || ''"
+              :size="36"
+              @click="toggleMenu"
+            />
             <transition name="fade">
               <div v-if="menuOpen" class="dropdown">
                 <div class="dropdown-user">
@@ -53,23 +74,12 @@
 import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import { useRouter } from "vue-router";
 import state, { logout, setUnread } from "../store.js";
-import { getMessages } from "../api.js";
+import { getMessages, logoutApi } from "../api.js";
+import Avatar from "../components/Avatar.vue";
 
 const router = useRouter();
 const menuOpen = ref(false);
 const menuWrap = ref(null);
-
-const avatarChar = computed(() =>
-  state.user && state.user.name ? state.user.name.charAt(0) : "用"
-);
-
-const avatarStyle = computed(() => {
-  const palette = ["#0071e3", "#34c759", "#ff9f0a", "#af52de", "#ff375f", "#5e5ce6"];
-  const name = state.user && state.user.name ? state.user.name : "";
-  let sum = 0;
-  for (let i = 0; i < name.length; i++) sum += name.charCodeAt(i);
-  return { background: palette[sum % palette.length] };
-});
 
 const isAdmin = computed(() => state.user && state.user.role === "admin");
 
@@ -84,6 +94,7 @@ function go(path) {
 
 function doLogout() {
   menuOpen.value = false;
+  logoutApi().catch(() => {});
   logout();
   router.push("/login");
 }
@@ -111,60 +122,135 @@ onBeforeUnmount(() => document.removeEventListener("click", onClickOutside));
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
 }
 
 .topnav {
   position: relative;
   z-index: 100;
-  flex: 0 0 64px;
-  height: 64px;
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: saturate(180%) blur(20px);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  flex: 0 0 72px;
+  height: 72px;
+  background: rgba(7, 11, 18, 0.78);
+  backdrop-filter: saturate(160%) blur(22px);
+  -webkit-backdrop-filter: saturate(160%) blur(22px);
+  border-bottom: 1px solid rgba(236, 230, 216, 0.08);
+}
+
+.topnav::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(232, 198, 110, 0.65),
+    rgba(236, 230, 216, 0.16),
+    transparent
+  );
+  opacity: 0.8;
 }
 
 .topnav-inner {
-  max-width: 1280px;
+  max-width: 1360px;
   margin: 0 auto;
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
+  padding: 0 28px;
   gap: 24px;
 }
 
 .logo {
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  color: #1d1d1f;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   white-space: nowrap;
+}
+
+.logo-mark {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f6e2a8 0%, #e0b95c 44%, #b98d34 78%, #f2d68f 100%);
+  color: #161006;
+  box-shadow: 0 6px 18px rgba(232, 198, 110, 0.22);
+}
+
+.logo-mark svg {
+  width: 19px;
+  height: 19px;
+}
+
+.logo-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.logo-text strong {
+  font-size: 15.5px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: var(--agri-ink);
+}
+
+.logo-text em {
+  font-style: normal;
+  font-size: 9.5px;
+  letter-spacing: 0.24em;
+  color: var(--agri-muted);
+  margin-top: 3px;
 }
 
 .nav-links {
   display: flex;
-  gap: 4px;
-  flex: 1;
-  justify-content: center;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(236, 230, 216, 0.04);
+  border: 1px solid rgba(236, 230, 216, 0.07);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .nav-links a {
-  font-size: 15px;
-  color: #6e6e73;
-  padding: 8px 14px;
-  border-radius: 980px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--agri-muted);
+  padding: 8px 17px;
+  border-radius: 999px;
+  transition: color 0.3s var(--agri-ease), background 0.3s var(--agri-ease);
 }
 
 .nav-links a:hover {
-  color: #1d1d1f;
+  color: var(--agri-ink);
+  background: rgba(236, 230, 216, 0.06);
 }
 
 .nav-links a.active {
-  color: #0071e3;
-  font-weight: 500;
+  color: #f6e2a8;
+  background: rgba(232, 198, 110, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(232, 198, 110, 0.32);
+}
+
+.nav-links a.active::before {
+  content: "";
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin-top: -2.5px;
+  border-radius: 50%;
+  background: var(--agri-lime);
+  animation: agri-pulse 2.6s ease-in-out infinite;
 }
 
 .nav-right {
@@ -177,15 +263,15 @@ onBeforeUnmount(() => document.removeEventListener("click", onClickOutside));
   position: relative;
   display: flex;
   align-items: center;
-  color: #6e6e73;
+  color: var(--agri-muted);
   padding: 8px;
   border-radius: 50%;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.3s var(--agri-ease);
 }
 
 .msg-link:hover {
-  color: #1d1d1f;
-  background: rgba(0, 0, 0, 0.05);
+  color: var(--agri-gold-bright);
+  background: rgba(236, 230, 216, 0.06);
 }
 
 .msg-badge {
@@ -198,9 +284,10 @@ onBeforeUnmount(() => document.removeEventListener("click", onClickOutside));
   font-size: 11px;
   line-height: 16px;
   text-align: center;
-  color: #fff;
-  background: #ff3b30;
-  border-radius: 980px;
+  color: #191204;
+  background: linear-gradient(135deg, #f6e2a8, #dfb65a);
+  border-radius: 999px;
+  font-weight: 600;
 }
 
 .user-menu {
@@ -208,41 +295,49 @@ onBeforeUnmount(() => document.removeEventListener("click", onClickOutside));
 }
 
 .menu-avatar {
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   font-size: 15px;
   cursor: pointer;
+  box-shadow: 0 0 0 2px rgba(7, 11, 18, 0.9), 0 0 0 3px rgba(236, 230, 216, 0.18);
+  transition: transform 0.35s var(--agri-ease), box-shadow 0.35s var(--agri-ease);
+}
+
+.menu-avatar:hover {
+  transform: translateY(-1px) scale(1.04);
+  box-shadow: 0 0 0 2px rgba(7, 11, 18, 0.9), 0 0 0 3px rgba(232, 198, 110, 0.65);
 }
 
 .dropdown {
   position: absolute;
-  top: 46px;
+  top: 50px;
   right: 0;
-  min-width: 200px;
+  min-width: 220px;
   padding: 8px;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: saturate(180%) blur(20px);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  border-radius: 16px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.16), 0 4px 12px rgba(0, 0, 0, 0.06);
+  background: rgba(11, 18, 32, 0.97);
+  backdrop-filter: saturate(160%) blur(22px);
+  -webkit-backdrop-filter: saturate(160%) blur(22px);
+  border: 1px solid rgba(236, 230, 216, 0.1);
+  border-radius: 18px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
   z-index: 50;
 }
 
 .dropdown-user {
-  padding: 8px 12px 12px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 10px 12px 13px;
+  border-bottom: 1px solid rgba(236, 230, 216, 0.08);
   margin-bottom: 6px;
 }
 
 .dropdown-user .name {
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 600;
-  color: #1d1d1f;
+  color: var(--agri-ink);
 }
 
 .dropdown-user .email {
   font-size: 12px;
-  color: #6e6e73;
+  color: var(--agri-muted);
   margin-top: 2px;
 }
 
@@ -252,24 +347,54 @@ onBeforeUnmount(() => document.removeEventListener("click", onClickOutside));
   border: none;
   background: transparent;
   text-align: left;
-  font-size: 14px;
-  color: #1d1d1f;
+  font-size: 13.5px;
+  color: var(--agri-ink-soft);
   padding: 10px 12px;
   border-radius: 10px;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.25s var(--agri-ease);
 }
 
 .dropdown-item:hover {
-  background: rgba(0, 0, 0, 0.05);
+  background: rgba(232, 198, 110, 0.12);
+  color: var(--agri-gold-bright);
 }
 
 .dropdown-item.danger {
-  color: #ff3b30;
+  color: #b03a3a;
+}
+
+.dropdown-item.danger:hover {
+  background: rgba(214, 69, 69, 0.1);
 }
 
 .content {
   flex: 1;
   overflow-y: auto;
+  position: relative;
+}
+
+@media (max-width: 860px) {
+  .topnav-inner {
+    padding: 0 16px;
+    gap: 12px;
+  }
+
+  .logo-text em {
+    display: none;
+  }
+
+  .nav-links {
+    gap: 0;
+  }
+
+  .nav-links a {
+    padding: 8px 10px;
+    font-size: 12.5px;
+  }
+
+  .nav-links a.active::before {
+    display: none;
+  }
 }
 </style>

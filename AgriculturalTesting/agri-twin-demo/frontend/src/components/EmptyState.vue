@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="empty-state">
     <div class="empty-icon">
       <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -28,8 +28,8 @@ defineProps({
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.05);
-  color: #8e8e93;
+  background: rgba(236, 230, 216, 0.05);
+  color: var(--agri-muted);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -39,12 +39,12 @@ defineProps({
 .empty-title {
   font-size: 15px;
   font-weight: 500;
-  color: #1d1d1f;
+  color: var(--agri-ink);
 }
 
 .empty-hint {
   font-size: 13px;
-  color: #8e8e93;
+  color: var(--agri-muted);
   margin-top: 6px;
 }
 </style>

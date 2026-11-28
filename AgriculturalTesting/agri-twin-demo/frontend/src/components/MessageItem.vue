@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div
     class="message-item"
     :class="{ unread: !message.isRead, expanded }"
@@ -33,26 +33,29 @@ defineEmits(["toggle"]);
   gap: 12px;
   padding: 16px 18px;
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  background: linear-gradient(158deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015));
+  border: 1px solid rgba(236, 230, 216, 0.07);
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .message-item:hover {
   transform: translateY(-1px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  border-color: rgba(232, 198, 110, 0.24);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
 }
 
 .message-item.unread {
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(232, 198, 110, 0.07);
+  border-color: rgba(232, 198, 110, 0.18);
 }
 
 .unread-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #0071e3;
+  background: #e8c66e;
+  box-shadow: 0 0 8px rgba(232, 198, 110, 0.6);
   margin-top: 6px;
   flex: 0 0 auto;
 }
@@ -70,7 +73,7 @@ defineEmits(["toggle"]);
 
 .msg-title {
   font-size: 15px;
-  color: #1d1d1f;
+  color: var(--agri-ink);
 }
 
 .msg-title.bold {
@@ -79,7 +82,7 @@ defineEmits(["toggle"]);
 
 .msg-content {
   font-size: 14px;
-  color: #6e6e73;
+  color: var(--agri-muted);
   line-height: 1.6;
   margin-top: 8px;
 }
@@ -93,7 +96,7 @@ defineEmits(["toggle"]);
 
 .msg-time {
   font-size: 12px;
-  color: #8e8e93;
+  color: var(--agri-muted);
   margin-top: 8px;
 }
 </style>

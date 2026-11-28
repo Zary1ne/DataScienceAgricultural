@@ -3600,9 +3600,16 @@ onBeforeUnmount(() => {
 }
 
 .tag-green {
-  color: #7bf0c2;
-  background: rgba(52, 211, 153, 0.14);
-  border-color: rgba(52, 211, 153, 0.4);
+  color: #fff8e6;
+  background-image: repeating-linear-gradient(
+      115deg,
+      rgba(246, 226, 168, 0) 0 6px,
+      rgba(246, 226, 168, 0.2) 6px 7px,
+      rgba(246, 226, 168, 0) 7px 14px
+    ),
+    linear-gradient(135deg, rgba(255, 248, 230, 0.2), rgba(232, 198, 110, 0.12));
+  border-color: rgba(246, 226, 168, 0.3);
+  text-shadow: 0 0 8px rgba(232, 198, 110, 0.5);
 }
 
 .tag-orange {

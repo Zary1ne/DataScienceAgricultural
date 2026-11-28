@@ -12,10 +12,10 @@
     </div>
 
     <div class="stat-grid">
-      <StatCard label="地块数" :value="overview.plots" icon="🌱" color="#34c759" />
-      <StatCard label="在线设备" :value="overview.onlineDevices" icon="📡" color="#0071e3" />
-      <StatCard label="今日识别次数" :value="overview.todayDetections" icon="🔍" color="#af52de" />
-      <StatCard label="未读消息" :value="state.unread" icon="💬" color="#ff9f0a" />
+      <StatCard label="地块数" :value="overview.plots" icon="🌱" color="#c9a04a" />
+      <StatCard label="在线设备" :value="overview.onlineDevices" icon="📡" color="#8aa0c0" />
+      <StatCard label="今日识别次数" :value="overview.todayDetections" icon="🔍" color="#e8c66e" />
+      <StatCard label="未读消息" :value="state.unread" icon="💬" color="#f0dca8" />
     </div>
 
     <div class="twin-main">
@@ -191,8 +191,9 @@ onMounted(async () => {
   top: 16px;
   left: 16px;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.85);
-  background: rgba(0, 0, 0, 0.4);
+  color: rgba(236, 230, 216, 0.85);
+  background: rgba(7, 12, 21, 0.82);
+  border: 1px solid rgba(236, 230, 216, 0.12);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   padding: 8px 14px;
@@ -208,10 +209,11 @@ onMounted(async () => {
   width: 252px;
   padding: 14px;
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.82);
+  background: rgba(10, 17, 29, 0.86);
+  border: 1px solid rgba(236, 230, 216, 0.12);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.45);
   animation: fadeUp 0.24s ease;
   pointer-events: none;
 }
@@ -237,7 +239,7 @@ onMounted(async () => {
 .obj-info-name {
   font-size: 15px;
   font-weight: 600;
-  color: #1d1d1f;
+  color: var(--agri-ink);
 }
 
 .obj-badge {
@@ -247,8 +249,16 @@ onMounted(async () => {
 }
 
 .obj-badge.is-normal {
-  color: #1a8f56;
-  background: rgba(52, 199, 89, 0.14);
+  color: #fff8e6;
+  background-image: repeating-linear-gradient(
+      115deg,
+      rgba(246, 226, 168, 0) 0 6px,
+      rgba(246, 226, 168, 0.2) 6px 7px,
+      rgba(246, 226, 168, 0) 7px 14px
+    ),
+    linear-gradient(135deg, rgba(255, 248, 230, 0.2), rgba(232, 198, 110, 0.12));
+  border: 1px solid rgba(246, 226, 168, 0.3);
+  text-shadow: 0 0 8px rgba(232, 198, 110, 0.5);
 }
 
 .obj-badge.is-warning {
@@ -265,7 +275,7 @@ onMounted(async () => {
   margin-top: 8px;
   font-size: 12px;
   line-height: 1.6;
-  color: #6e6e73;
+  color: var(--agri-muted);
 }
 
 .obj-info-metrics {
@@ -278,13 +288,13 @@ onMounted(async () => {
 .obj-info-metric {
   padding: 7px 9px;
   border-radius: 10px;
-  background: rgba(0, 0, 0, 0.04);
+  background: rgba(236, 230, 216, 0.05);
 }
 
 .obj-info-label {
   display: block;
   font-size: 11px;
-  color: #8e8e93;
+  color: var(--agri-muted);
 }
 
 .obj-info-value {
@@ -292,18 +302,18 @@ onMounted(async () => {
   margin-top: 2px;
   font-size: 14px;
   font-weight: 600;
-  color: #1d1d1f;
+  color: var(--agri-ink);
 }
 
 .enter-studio {
   position: absolute;
   right: 16px;
   bottom: 16px;
-  border: none;
-  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(232, 198, 110, 0.3);
+  background: rgba(6, 10, 18, 0.72);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  color: #fff;
+  color: #f0dca8;
   font-size: 13px;
   font-weight: 500;
   padding: 10px 18px;
@@ -313,7 +323,7 @@ onMounted(async () => {
 }
 
 .enter-studio:hover {
-  background: #0071e3;
+  background: rgba(232, 198, 110, 0.16);
   transform: translateY(-1px);
 }
 
@@ -346,12 +356,12 @@ onMounted(async () => {
 
 .alert-text {
   font-size: 14px;
-  color: #1d1d1f;
+  color: var(--agri-ink);
 }
 
 .alert-time {
   font-size: 12px;
-  color: #8e8e93;
+  color: var(--agri-muted);
   margin-top: 3px;
 }
 
@@ -362,9 +372,9 @@ onMounted(async () => {
 }
 
 .quick-btn {
-  border: none;
-  background: rgba(0, 0, 0, 0.04);
-  color: #1d1d1f;
+  border: 1px solid var(--agri-line-soft);
+  background: rgba(236, 230, 216, 0.04);
+  color: var(--agri-ink);
   font-size: 14px;
   padding: 14px 8px;
   border-radius: 14px;
@@ -373,8 +383,9 @@ onMounted(async () => {
 }
 
 .quick-btn:hover {
-  background: rgba(0, 113, 227, 0.1);
-  color: #0071e3;
+  background: rgba(232, 198, 110, 0.12);
+  border-color: rgba(232, 198, 110, 0.3);
+  color: var(--agri-gold-bright);
 }
 
 .demo-card {

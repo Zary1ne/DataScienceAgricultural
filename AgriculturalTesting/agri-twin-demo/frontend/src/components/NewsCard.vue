@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <article class="m-card news-card">
     <div class="news-top">
       <span class="m-chip">政策</span>
@@ -62,7 +62,7 @@ defineProps({
   justify-content: space-between;
   margin-top: 16px;
   padding-top: 14px;
-  border-top: 1px solid rgba(16, 41, 26, 0.08);
+  border-top: 1px solid rgba(236, 230, 216, 0.08);
 }
 
 .news-source {

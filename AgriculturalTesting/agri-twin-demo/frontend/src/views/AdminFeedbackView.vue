@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div>
     <div class="filters">
       <button
@@ -92,8 +92,8 @@ onMounted(async () => {
 
 .filter-btn {
   border: none;
-  background: rgba(0, 0, 0, 0.04);
-  color: #6e6e73;
+  background: rgba(236, 230, 216, 0.05);
+  color: var(--agri-muted);
   font-size: 14px;
   padding: 8px 16px;
   border-radius: 980px;
@@ -102,12 +102,12 @@ onMounted(async () => {
 }
 
 .filter-btn:hover {
-  color: #1d1d1f;
+  color: var(--agri-ink);
 }
 
 .filter-btn.active {
-  background: rgba(0, 113, 227, 0.12);
-  color: #0071e3;
+  background: rgba(232, 198, 110, 0.1);
+  color: var(--agri-ink);
   font-weight: 500;
 }
 
@@ -134,12 +134,12 @@ onMounted(async () => {
 .fb-user {
   font-size: 15px;
   font-weight: 600;
-  color: #1d1d1f;
+  color: var(--agri-ink);
 }
 
 .fb-content {
   font-size: 14px;
-  color: #1d1d1f;
+  color: var(--agri-ink);
   line-height: 1.6;
   margin-top: 10px;
 }
@@ -150,7 +150,7 @@ onMounted(async () => {
   justify-content: space-between;
   margin-top: 16px;
   padding-top: 14px;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  border-top: 1px solid rgba(236, 230, 216, 0.09);
 }
 
 .fb-meta {
@@ -161,6 +161,6 @@ onMounted(async () => {
 
 .fb-time {
   font-size: 12px;
-  color: #8e8e93;
+  color: var(--agri-muted);
 }
 </style>

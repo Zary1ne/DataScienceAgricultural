@@ -21,6 +21,15 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api\/air-quality/, ""),
         secure: true,
       },
+      // 本地开发把业务接口与上传资源代理到 FastAPI，生产由 FastAPI 同源托管
+      "/api": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
+      },
+      "/uploads": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
+      },
     },
   },
 });

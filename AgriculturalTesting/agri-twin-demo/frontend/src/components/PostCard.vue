@@ -1,12 +1,22 @@
 <template>
   <div class="card card-hover post-card" @click="$emit('open', post)">
     <div class="post-head">
-      <div class="avatar post-avatar" :style="avatarStyle">{{ post.avatar }}</div>
+      <Avatar
+        :name="post.author"
+        :seed="post.userId || post.author"
+        :url="post.authorAvatar"
+        :size="40"
+      />
       <div class="post-author">
         <div class="post-author-name">{{ post.author }}</div>
         <div class="post-tags-line">
           <span class="tag" :class="sourceClass">{{ sourceLabel }}</span>
           <span v-if="post.authorRole === 'admin'" class="tag tag-orange">管理员</span>
+          <span v-if="post.status === 'pending'" class="tag tag-orange">审核中</span>
+          <span v-if="post.readme" class="tag tag-blue">README</span>
+          <span v-if="post.attachments && post.attachments.length" class="tag tag-gray">
+            附件 {{ post.attachments.length }}
+          </span>
           <span class="post-time num">{{ post.createdAt }}</span>
         </div>
       </div>
@@ -27,9 +37,23 @@
       >
         <span class="like-icon">👍</span> {{ post.likes }}
       </button>
+      <button
+        class="post-stat post-like"
+        :class="{ favorited }"
+        @click.stop="$emit('favorite', post)"
+      >
+        <span class="like-icon">{{ favorited ? "★" : "☆" }}</span>
+        {{ favorited ? "已收藏" : "收藏" }}
+      </button>
       <button class="post-stat post-like" @click.stop="$emit('open', post)">
         <span class="like-icon">💬</span> {{ post.comments }}
       </button>
+      <span v-if="canEdit || canDelete" class="post-manage">
+        <button v-if="canEdit" class="mini-link" @click.stop="$emit('edit', post)">编辑</button>
+        <button v-if="canDelete" class="mini-link danger" @click.stop="$emit('delete', post)">
+          删除
+        </button>
+      </span>
       <span class="post-more">查看详情 →</span>
     </div>
   </div>
@@ -37,13 +61,17 @@
 
 <script setup>
 import { computed } from "vue";
+import Avatar from "./Avatar.vue";
 
 const props = defineProps({
   post: { type: Object, required: true },
   liked: { type: Boolean, default: false },
+  favorited: { type: Boolean, default: false },
+  canEdit: { type: Boolean, default: false },
+  canDelete: { type: Boolean, default: false },
 });
 
-defineEmits(["like", "open"]);
+defineEmits(["like", "favorite", "edit", "delete", "open"]);
 
 const sourceLabel = computed(() =>
   props.post.source === "miniprogram" ? "小程序" : "Web"
@@ -52,19 +80,33 @@ const sourceLabel = computed(() =>
 const sourceClass = computed(() =>
   props.post.source === "miniprogram" ? "tag-green" : "tag-blue"
 );
-
-const avatarStyle = computed(() => {
-  const palette = ["#0071e3", "#34c759", "#ff9f0a", "#af52de", "#ff375f", "#5e5ce6"];
-  const char = props.post.avatar || "用";
-  let sum = 0;
-  for (let i = 0; i < char.length; i++) sum += char.charCodeAt(i);
-  return { background: palette[sum % palette.length] };
-});
 </script>
 
 <style scoped>
 .post-card {
   gap: 0;
+  border-radius: 20px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.post-card::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 20px;
+  bottom: 20px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--agri-lime-deep);
+  opacity: 0;
+  transform: scaleY(0.35);
+  transition: opacity 0.45s var(--agri-ease), transform 0.45s var(--agri-ease);
+}
+
+.post-card:hover::after {
+  opacity: 1;
+  transform: scaleY(1);
 }
 
 .post-head {
@@ -85,9 +127,9 @@ const avatarStyle = computed(() => {
 }
 
 .post-author-name {
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 600;
-  color: #1d1d1f;
+  color: var(--agri-ink);
 }
 
 .post-tags-line {
@@ -99,22 +141,22 @@ const avatarStyle = computed(() => {
 }
 
 .post-time {
-  font-size: 12px;
-  color: #8e8e93;
+  font-size: 11.5px;
+  color: var(--agri-muted);
 }
 
 .post-title {
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  color: #1d1d1f;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  color: var(--agri-ink);
   margin-top: 16px;
 }
 
 .post-content {
-  font-size: 14px;
-  color: #6e6e73;
-  line-height: 1.6;
+  font-size: 13.5px;
+  color: var(--agri-muted);
+  line-height: 1.65;
   margin-top: 8px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -130,46 +172,76 @@ const avatarStyle = computed(() => {
 }
 
 .post-tag {
-  font-size: 12px;
-  color: #0071e3;
-  background: rgba(0, 113, 227, 0.08);
+  font-size: 11.5px;
+  color: #ecd9a4;
+  background: rgba(232, 198, 110, 0.12);
   padding: 3px 10px;
-  border-radius: 980px;
+  border-radius: 999px;
 }
 
 .post-foot {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   margin-top: 16px;
   padding-top: 14px;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  border-top: 1px solid var(--agri-line-soft);
 }
 
 .post-stat {
-  font-size: 13px;
-  color: #8e8e93;
+  font-size: 12.5px;
+  color: var(--agri-muted);
 }
 
 .post-like {
-  border: none;
-  background: rgba(0, 0, 0, 0.04);
-  padding: 6px 12px;
-  border-radius: 980px;
+  border: 1px solid transparent;
+  background: rgba(236, 230, 216, 0.06);
+  padding: 6px 11px;
+  border-radius: 999px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  transition: all 0.2s ease;
+  transition: all 0.25s var(--agri-ease);
 }
 
 .post-like:hover {
-  background: rgba(0, 0, 0, 0.08);
+  background: rgba(236, 230, 216, 0.1);
+  color: var(--agri-ink);
 }
 
 .post-like.liked {
-  background: rgba(0, 113, 227, 0.12);
-  color: #0071e3;
+  background: rgba(232, 198, 110, 0.18);
+  color: #f0dca8;
+  border-color: rgba(232, 198, 110, 0.4);
+}
+
+.post-like.favorited {
+  background: rgba(231, 180, 90, 0.14);
+  color: #f0c083;
+  border-color: rgba(231, 180, 90, 0.3);
+}
+
+.post-manage {
+  display: inline-flex;
+  gap: 10px;
+}
+
+.mini-link {
+  border: none;
+  background: transparent;
+  color: var(--agri-muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.mini-link:hover {
+  color: #e8c66e;
+}
+
+.mini-link.danger:hover {
+  color: #ff3b30;
 }
 
 .like-icon {

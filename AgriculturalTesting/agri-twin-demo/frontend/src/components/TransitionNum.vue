@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 /**
  * TransitionNum — 数字平滑补间 (400ms easeOutCubic)
  * Props:

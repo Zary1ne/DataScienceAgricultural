@@ -3,7 +3,8 @@
 一个前后端真实分离、带完整登录体系与双端（用户端 / 管理端）的智慧农业 Web 应用，用于向指导老师演示项目整体架构与产品形态。
 
 > **当前状态（哪些是真、哪些是占位）**
-> - ✅ **真**：页面结构、导航、登录体系、数据流、前后端 HTTP 通信、路由守卫、状态管理、内存假数据。
+> - ✅ **真**：页面结构、导航、登录体系、数据流、前后端 HTTP 通信、路由守卫、状态管理。
+> - ✅ **真**：用户、帖子、评论、点赞、消息、反馈、识别历史已持久化到 MySQL，重启后端数据不丢失。
 > - ✅ **真**：病害识别已接入 ONNX 水稻分类模型，可返回模型类别与置信度；识别准确率仍需用独立测试集评估。
 > - ✅ **露天水田场景**：平原与梯田均有 5×5 子区域、泥层、水面、田埂和程序化低面数水稻；稻株以全局实例批次渲染，便于后续替换模型工厂。
 > - 🟡 **演示**：社区发帖/点赞/评论、个人资料保存均写入后端内存，无持久化与审核落库。
@@ -12,7 +13,7 @@
 
 - 前端：HTML + CSS + JavaScript + Vue 3 + Vite + Vue Router + Three.js（npm 安装）
 - 后端：Python + FastAPI + Uvicorn
-- 状态存储：前端用 localStorage 保存登录状态；后端用内存字典模拟数据，**不引入数据库**
+- 状态存储：前端用 localStorage 保存登录状态；后端使用 **MySQL 8.0 + SQLAlchemy** 持久化业务数据
 - 无 TypeScript、无 UI 组件库（Element Plus / Ant Design 均未使用），样式全部手写
 
 ## 目录结构
@@ -21,7 +22,11 @@
 agri-twin-demo/
 ├── backend/
 │   ├── main.py             # FastAPI 全部接口 + CORS + 简单鉴权
-│   ├── data.py             # 内存假数据（登录账号 / 帖子 / 消息 / 用户等）
+│   ├── db.py               # MySQL 连接、ORM 模型、建表与首次种子数据
+│   ├── repository.py       # 数据访问层（MySQL 记录 ↔ 前端 JSON）
+│   ├── seed_data.py        # 首次启动写入的演示种子数据
+│   ├── data.py             # 静态配置（首页资讯 / 场景 / 知识库）
+│   ├── .env.example        # 数据库连接配置模板
 │   └── requirements.txt
 └── frontend/
     ├── package.json
@@ -44,6 +49,21 @@ agri-twin-demo/
 
 ## 启动方式
 
+### 0. 数据库（MySQL 8.0）
+
+首次运行需要先建库与专用账号（只需执行一次）：
+
+```sql
+CREATE DATABASE IF NOT EXISTS agri_twin
+  DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS 'agri_app'@'localhost' IDENTIFIED BY '你的密码';
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX
+  ON agri_twin.* TO 'agri_app'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+然后把 `backend/.env.example` 复制为 `backend/.env`，填写 `DB_PASSWORD`。`.env` 已被 git 忽略，不会提交。
+
 ### 1. 后端（FastAPI）
 
 ```bash
@@ -52,7 +72,7 @@ pip install -r requirements.txt
 uvicorn main:app --reload --port 8000
 ```
 
-后端监听 http://localhost:8000，已开启 CORS 允许 http://localhost:5173。
+首次启动会自动建表并写入演示种子数据；之后重启不会重复写入。后端监听 http://localhost:8000，已开启 CORS 允许 http://localhost:5173。
 
 ### 2. 前端（Vite + Vue 3）
 
@@ -94,10 +114,10 @@ npm --prefix .\frontend run test:components
 | `/twin` | 孪生平台 | 统计卡片、通用场景预览、最近告警、快捷入口和进入全屏操作界面入口 |
 | `/twin/studio` | 孪生操作界面 | 左侧环境摘要、中间两处 3D 水田、右侧子区域参数/土壤详情、底部地块结构/天气/告警；场景支持自由旋转、右键或 Shift+左键平移、滚轮缩放，选择子区域时相机平滑聚焦、取消选择后返回场景中心；选中格显示独立近景、实时参数、阈值预警和已挂载组件占位。平原与梯田各为 5×5 格，净格宽 10m、田埂另占 0.4m；梯田以逐行泥面高程配置并按行设置挡水边；程序化稻株按格参数控制颜色、高度和稻穗显示，参数以 1 秒步长按天气做前端演示模拟，非传感器实测。此阶段场景结构由 Vue + Three.js 前端配置驱动，不新增 FastAPI 场景接口 |
 | `/messages` | 消息中心 | 消息列表、筛选、点击展开并标已读、全部已读 |
-| `/settings` | 个人设置 | 账号资料、农场信息、通知偏好开关、退出登录 |
+| `/settings` | 个人设置 | 账号资料、农场信息、通知偏好开关、意见反馈、修改密码、退出登录 / 退出全部设备 |
 | `/admin/dashboard` | 管理仪表盘 | 统计卡片、模块开发进度、最近活动 |
 | `/admin/feedback` | 用户建议 | 建议列表、筛选、标记已处理 |
-| `/admin/community` | 社区审核 | 待审核帖子、审核通过 |
+| `/admin/community` | 社区审核 | 真实待审核帖子、审核通过后公开展示 |
 | `/admin/users` | 用户管理 | 用户表格、启用/禁用、发送站内消息 |
 
 ## 模块负责人表
@@ -122,7 +142,18 @@ npm --prefix .\frontend run test:components
 | GET | `/api/twin/weather?latitude={lat}&longitude={lon}` | 通过后端获取天气服务的当前天气与预报 |
 | POST | `/api/twin/devices/{id}/toggle` | 设备控制（灌溉/通风/补光/卷帘） |
 | GET | `/api/twin/soil-profile` | 四层土壤剖面与探针数据 |
-| GET/PUT | `/api/user/profile` | 个人资料读取 / 更新 |
+| GET/PUT | `/api/user/profile` | 个人资料读取 / 更新（需登录，按用户隔离） |
+| POST | `/api/auth/register` | 注册并签发登录 token |
+| POST | `/api/auth/login` | 登录并签发随机会话 token |
+| GET | `/api/auth/me` | 查询当前登录用户 |
+| POST | `/api/auth/logout` | 退出当前设备 |
+| POST | `/api/auth/password` | 修改密码（其他设备自动下线） |
+| POST | `/api/auth/logout-all` | 退出全部设备 |
+| GET | `/api/admin/community/posts` | 管理端待审核帖子（真实帖子数据） |
+| GET | `/api/feedback/mine` | 我的反馈及处理状态（需登录） |
+| POST | `/api/feedback` | 提交用户反馈（需登录） |
+| DELETE | `/api/detect/history/{id}` | 删除单条识别记录（仅本人） |
+| DELETE | `/api/detect/history` | 清空本人识别历史 |
 
 ## 病害识别模型
 
@@ -131,6 +162,18 @@ npm --prefix .\frontend run test:components
 - 接口仅返回模型分类结果，不评估病害程度；诊断与防治信息用于参考，需结合田间情况复核。
 - **3D 场景**：`src/scene/regionConfigs.ts` 管理地区、格子和独立参数配置；`src/scene/paddyFieldBuilder.js` 构建地形并挂载稻株批次。泥层和田埂使用静态 InstancedMesh 合并，减少地形 draw call。`src/scene/proceduralRiceFactory.js` 实现可替换的 `IPlantFactory` 兼容工厂，并使用轻量 Lambert 顶点色材质；`src/scene/riceInstanceBatches.js` 将种子、主茎、分蘖茎、叶片、穗轴/穗枝和谷粒分别建为全局 InstancedMesh，共享每格 140 个稳定索引槽位。单株 262 三角面，远景每格 60 株、中景 80 株、近景 100 株、选中格 140 株；成熟期会自动补回株数并加宽株形。萌芽期只显示种子，幼苗期叶片从中心逐步展开，分蘖、抽穗和谷粒按生理进度依次出现。全场容量约 183 万三角面。颜色和高度按生长阶段/健康值更新，叶穗通过实例可见属性控制并使用 GPU 风摆，不投射或接收实时阴影。`aVisible` 仍会执行隐藏实例的顶点处理，后续若需进一步降低移动设备负载，应实现真正按格拆分的批次 LOD。选中格的 `PlotCloseup.vue` 使用独立 renderer 和 24 株近景实例，并在参数变化时按需渲染。`farmComponents.js` 以纯逻辑管理插件及其每格唯一性，`farmComponentRates.js` 集中维护天气和组件速率；每秒 tick 将启用组件效果传入无 Three.js 依赖的 `plotSimulation.js`，模拟水位、CO₂ 和温度变化。组件模型由 `farmComponentVisualFactory.js` 独立生成；巡检摄像头和大朋 VR 使用可替换的几何体占位，`ivrMode.ts` 仅预留 `IVRMode` 接口，不接入运行时 VR。对应纯逻辑测试位于 `frontend/tests/riceInstanceBatches.test.js`、`frontend/tests/plotSimulation.test.js` 与 `frontend/tests/farmComponents.test.js`。
 
+## 数据持久化（MySQL 8.0）
+
+- 连接配置：`backend/.env`（`DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD`），代码中不硬编码密码。
+- 建表与种子：后端启动时执行 `Base.metadata.create_all`；`users` 表为空时写入一次演示数据，重启不会重复写入。
+- 已落库的 9 张业务表：`users`、`user_profiles`、`posts`、`post_comments`、`post_likes`、`messages`、`message_reads`、`feedback`、`detect_history`。
+- 社区审核：`posts.status` 取 `pending` / `approved`，新帖默认待审核，管理员通过后才对所有用户展示。
+- 消息已读：`message_reads` 以 `(user_id, message_id)` 记录，未读状态按用户独立计算。
+- 用户反馈：`feedback.user_id` 记录提交人，用户只能在个人设置中查看自己的反馈，管理端统一处理并联动仪表盘待处理数。
+- 密码以 PBKDF2-SHA256 哈希保存，数据库中不出现明文。
+- 首页资讯、3D 场景对象、土壤剖面、病害知识库与管理端静态文案仍为代码内静态配置，不入库。
+- 设备开关状态（`TWIN_STATE`）仍为进程内运行时状态，重启后复位。
+
 ## 验收自检
 
 - [x] 两条启动命令后打开 http://localhost:5173，跳转登录页，两个演示账号均可登录并进入对应端
@@ -138,6 +181,7 @@ npm --prefix .\frontend run test:components
 - [x] 首页政策/股票/公告正常渲染，股票红涨绿跌
 - [x] 社区可浏览、可发布、可点赞、可打开详情并发表评论
 - [x] 病害识别支持批量上传（最多 5 张）、ONNX 水稻病害分类、模型状态提示、病害知识库与识别历史
+- [x] 用户、帖子、评论、点赞、消息、反馈、识别历史写入 MySQL，重启后端数据仍在
 - [x] 孪生平台的两个露天水田地块均显示 5×5 子区域，可点击子区域查看其独立默认参数
 - [x] 平原和梯田配置使用同一 5×5 格结构；梯田高程按行配置，水面高度按子区域水位计算
 - [x] 孪生场景使用自由旋转、平移和缩放；本阶段仅使用前端场景配置，不新增场景后端接口

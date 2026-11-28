@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 /**
  * GaugeCard — 纯 CSS conic-gradient 环形仪表盘
  * Props:

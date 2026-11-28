@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="page-head">
       <div>
@@ -103,7 +103,11 @@
     <section class="card history">
       <div class="section-head">
         <h2 class="section-title">识别历史</h2>
-        <span class="section-hint num">共 {{ history.length }} 条</span>
+        <div class="history-head-right">
+          <span class="section-hint num">共 {{ history.length }} 条</span>
+          <button v-if="history.length" class="clear-btn" @click="exportHistory">导出 CSV</button>
+          <button v-if="history.length" class="clear-btn" @click="clearHistory">清空</button>
+        </div>
       </div>
       <div v-if="historyError" class="error-tip">历史记录加载失败：后端未连接</div>
       <div v-else-if="!history.length" class="empty-wrap small">
@@ -117,6 +121,7 @@
             <div class="h-meta num">{{ (h.confidence * 100).toFixed(0) }}% · {{ h.time }}</div>
             <div class="h-file">{{ h.image }}</div>
           </div>
+          <button class="item-del" @click.stop="removeHistory(h)">删除</button>
         </div>
       </div>
     </section>
@@ -126,7 +131,8 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import EmptyState from "../components/EmptyState.vue";
-import { detectImage, getDetectHistory, getDetectLibrary, getDetectStatus } from "../api.js";
+import { detectImage, getDetectHistory, getDetectLibrary, getDetectStatus, deleteDetectHistory, clearDetectHistory } from "../api.js";
+import { notify } from "../store.js";
 
 const maxFiles = 5;
 const fileInput = ref(null);
@@ -240,6 +246,51 @@ async function refreshHistory() {
   }
 }
 
+async function removeHistory(h) {
+  try {
+    await deleteDetectHistory(h.id);
+    history.value = history.value.filter((item) => item.id !== h.id);
+    notify("识别记录已删除");
+  } catch (err) {
+    notify("删除失败，请稍后重试");
+  }
+}
+
+async function clearHistory() {
+  try {
+    await clearDetectHistory();
+    history.value = [];
+    notify("识别历史已清空");
+  } catch (err) {
+    notify("清空失败，请稍后重试");
+  }
+}
+
+function exportHistory() {
+  if (!history.value.length) return;
+  const header = ["识别时间", "病害类别", "置信度", "严重程度", "文件名"];
+  const rows = history.value.map((h) => [
+    h.time,
+    h.disease,
+    `${(h.confidence * 100).toFixed(1)}%`,
+    h.severity || "",
+    h.image,
+  ]);
+  const csv = [header, ...rows]
+    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+    .join("\r\n");
+  // 加 BOM，确保 Excel 打开中文不乱码
+  const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `识别历史_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 function severityClass(sev) {
   if (!sev || sev === "无") return "tag-green";
   if (sev === "轻度" || sev === "中度" || sev === "待评估") return "tag-orange";
@@ -285,7 +336,7 @@ onBeforeUnmount(() => {
 .head-badge {
   flex: 0 0 auto;
   font-size: 13px;
-  color: #b26a00;
+  color: #f0c083;
   background: rgba(255, 159, 10, 0.14);
   border: 1px solid rgba(255, 159, 10, 0.32);
   padding: 7px 14px;
@@ -293,9 +344,16 @@ onBeforeUnmount(() => {
 }
 
 .head-badge.is-ready {
-  color: #167447;
-  background: rgba(52, 199, 89, 0.12);
-  border-color: rgba(52, 199, 89, 0.28);
+  color: #fff8e6;
+  background-image: repeating-linear-gradient(
+      115deg,
+      rgba(246, 226, 168, 0) 0 6px,
+      rgba(246, 226, 168, 0.22) 6px 7px,
+      rgba(246, 226, 168, 0) 7px 14px
+    ),
+    linear-gradient(135deg, rgba(255, 248, 230, 0.2), rgba(232, 198, 110, 0.12));
+  border-color: rgba(246, 226, 168, 0.38);
+  text-shadow: 0 0 10px rgba(232, 198, 110, 0.5);
 }
 
 .head-badge.is-unavailable {
@@ -320,7 +378,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  border: 2px dashed rgba(0, 0, 0, 0.14);
+  border: 2px dashed rgba(236, 230, 216, 0.18);
   border-radius: 16px;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -329,16 +387,16 @@ onBeforeUnmount(() => {
 
 .dropzone:hover,
 .dropzone.dragging {
-  border-color: #0071e3;
-  background: rgba(0, 113, 227, 0.04);
+  border-color: var(--agri-gold);
+  background: rgba(232, 198, 110, 0.05);
 }
 
 .dz-icon {
   width: 52px;
   height: 52px;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.05);
-  color: #8e8e93;
+  background: rgba(236, 230, 216, 0.06);
+  color: var(--agri-muted);
   font-size: 26px;
   display: flex;
   align-items: center;
@@ -348,13 +406,13 @@ onBeforeUnmount(() => {
 
 .dz-text {
   font-size: 15px;
-  color: #1d1d1f;
+  color: var(--agri-ink);
   font-weight: 500;
 }
 
 .dz-sub {
   font-size: 13px;
-  color: #8e8e93;
+  color: var(--agri-muted);
   margin-top: 8px;
 }
 
@@ -371,7 +429,7 @@ onBeforeUnmount(() => {
   gap: 10px;
   padding: 8px;
   border-radius: 12px;
-  background: rgba(0, 0, 0, 0.03);
+  background: rgba(236, 230, 216, 0.04);
 }
 
 .q-thumb {
@@ -389,7 +447,7 @@ onBeforeUnmount(() => {
 
 .q-name {
   font-size: 12px;
-  color: #1d1d1f;
+  color: var(--agri-ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -398,11 +456,11 @@ onBeforeUnmount(() => {
 .q-status {
   font-size: 11px;
   margin-top: 3px;
-  color: #8e8e93;
+  color: var(--agri-muted);
 }
 
 .q-status.is-done {
-  color: #1a8f56;
+  color: #f0dca8;
 }
 
 .q-status.is-error {
@@ -410,7 +468,7 @@ onBeforeUnmount(() => {
 }
 
 .q-status.is-running {
-  color: #0071e3;
+  color: var(--agri-ink);
 }
 
 .q-error {
@@ -424,7 +482,7 @@ onBeforeUnmount(() => {
 .q-remove {
   border: none;
   background: transparent;
-  color: #8e8e93;
+  color: var(--agri-muted);
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
@@ -432,7 +490,7 @@ onBeforeUnmount(() => {
 }
 
 .q-remove:hover {
-  color: #ff3b30;
+  color: #b03a3a;
 }
 
 .detect-actions {
@@ -456,9 +514,10 @@ onBeforeUnmount(() => {
 }
 
 .model-banner.is-ready {
-  color: #176b3f;
-  border-color: rgba(52, 199, 89, 0.26);
-  background: rgba(52, 199, 89, 0.09);
+  color: #fff8e6;
+  border-color: rgba(246, 226, 168, 0.3);
+  background: rgba(246, 226, 168, 0.1);
+  text-shadow: 0 0 10px rgba(232, 198, 110, 0.4);
 }
 
 .empty-wrap {
@@ -486,8 +545,8 @@ onBeforeUnmount(() => {
 .spinner {
   width: 36px;
   height: 36px;
-  border: 3px solid rgba(0, 0, 0, 0.1);
-  border-top-color: #0071e3;
+  border: 3px solid rgba(236, 230, 216, 0.12);
+  border-top-color: var(--agri-gold);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -500,7 +559,7 @@ onBeforeUnmount(() => {
 
 .loading-text {
   font-size: 14px;
-  color: #6e6e73;
+  color: var(--agri-muted);
 }
 
 .result-list {
@@ -514,7 +573,8 @@ onBeforeUnmount(() => {
 
 .result-card {
   border-radius: 14px;
-  background: rgba(0, 0, 0, 0.03);
+  background: rgba(236, 230, 216, 0.04);
+  border: 1px solid var(--agri-line-soft);
   padding: 16px;
 }
 
@@ -529,13 +589,13 @@ onBeforeUnmount(() => {
   font-size: 17px;
   font-weight: 600;
   letter-spacing: -0.02em;
-  color: #1d1d1f;
+  color: var(--agri-ink);
 }
 
 .result-file {
   display: block;
   font-size: 11px;
-  color: #8e8e93;
+  color: var(--agri-muted);
   margin-top: 3px;
   word-break: break-all;
 }
@@ -546,7 +606,7 @@ onBeforeUnmount(() => {
 
 .conf-label {
   font-size: 12px;
-  color: #8e8e93;
+  color: var(--agri-muted);
   margin-bottom: 6px;
 }
 
@@ -563,18 +623,18 @@ onBeforeUnmount(() => {
 .conf-num {
   font-size: 15px;
   font-weight: 600;
-  color: #1d1d1f;
+  color: var(--agri-ink);
 }
 
 .result-line {
   font-size: 13px;
-  color: #6e6e73;
+  color: var(--agri-muted);
   line-height: 1.65;
   margin-top: 10px;
 }
 
 .result-line b {
-  color: #1d1d1f;
+  color: var(--agri-ink);
   font-weight: 600;
   margin-right: 6px;
 }
@@ -595,12 +655,12 @@ onBeforeUnmount(() => {
   font-size: 17px;
   font-weight: 600;
   letter-spacing: -0.02em;
-  color: #1d1d1f;
+  color: var(--agri-ink);
 }
 
 .section-hint {
   font-size: 12px;
-  color: #8e8e93;
+  color: var(--agri-muted);
 }
 
 .library {
@@ -616,15 +676,15 @@ onBeforeUnmount(() => {
 .lib-card {
   padding: 16px;
   border-radius: 14px;
-  background: rgba(0, 0, 0, 0.03);
-  border: 1px solid transparent;
+  background: rgba(236, 230, 216, 0.035);
+  border: 1px solid var(--agri-line-soft);
   transition: all 0.25s ease;
 }
 
 .lib-card:hover {
-  border-color: rgba(0, 113, 227, 0.24);
-  background: #fff;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.06);
+  border-color: rgba(232, 198, 110, 0.3);
+  background: rgba(232, 198, 110, 0.06);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
 }
 
 .lib-head {
@@ -636,8 +696,8 @@ onBeforeUnmount(() => {
 
 .lib-crop {
   font-size: 12px;
-  color: #0071e3;
-  background: rgba(0, 113, 227, 0.08);
+  color: #ecd9a4;
+  background: rgba(232, 198, 110, 0.1);
   padding: 2px 8px;
   border-radius: 980px;
 }
@@ -645,19 +705,19 @@ onBeforeUnmount(() => {
 .lib-name {
   font-size: 16px;
   font-weight: 600;
-  color: #1d1d1f;
+  color: var(--agri-ink);
   margin: 10px 0 8px;
 }
 
 .lib-row {
   font-size: 12px;
   line-height: 1.65;
-  color: #6e6e73;
+  color: var(--agri-muted);
   margin-top: 6px;
 }
 
 .lib-row b {
-  color: #1d1d1f;
+  color: var(--agri-ink);
   margin-right: 6px;
 }
 
@@ -671,20 +731,59 @@ onBeforeUnmount(() => {
   gap: 14px;
 }
 
+.history-head-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.clear-btn {
+  font-size: 12px;
+  color: var(--agri-muted);
+  background: none;
+  border: 1px solid var(--agri-line);
+  border-radius: 8px;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.clear-btn:hover {
+  color: #b03a3a;
+  border-color: rgba(255, 59, 48, 0.35);
+}
+
 .history-item {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 14px;
   border-radius: 14px;
-  background: rgba(0, 0, 0, 0.03);
+  background: rgba(236, 230, 216, 0.04);
+  border: 1px solid var(--agri-line-soft);
+}
+
+.item-del {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--agri-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 2px;
+  transition: color 0.2s ease;
+}
+
+.item-del:hover {
+  color: #b03a3a;
 }
 
 .thumb {
   width: 44px;
   height: 44px;
   border-radius: 12px;
-  background: rgba(0, 0, 0, 0.06);
+  background: rgba(236, 230, 216, 0.07);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -694,23 +793,24 @@ onBeforeUnmount(() => {
 
 .h-body {
   min-width: 0;
+  flex: 1;
 }
 
 .h-disease {
   font-size: 14px;
   font-weight: 500;
-  color: #1d1d1f;
+  color: var(--agri-ink);
 }
 
 .h-meta {
   font-size: 12px;
-  color: #8e8e93;
+  color: var(--agri-muted);
   margin-top: 3px;
 }
 
 .h-file {
   font-size: 11px;
-  color: #aeaeb2;
+  color: var(--agri-muted);
   margin-top: 2px;
   white-space: nowrap;
   overflow: hidden;
